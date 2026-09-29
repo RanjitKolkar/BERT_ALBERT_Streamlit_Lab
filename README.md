@@ -1,40 +1,43 @@
-# Transformer AI Teaching Lab v2 — PDF/QA Fix
+# Transformer AI Teaching Lab v3
 
-This version fixes the PDF Question Answering error caused by variable-length
-overflow tokenizer features being converted directly to PyTorch tensors.
+Panel-style Streamlit teaching application covering Transformers, BERT QA, NER, embeddings, RAG, local LLMs and cloud LLMs.
 
-## Main fix
+## Main demonstration
 
-QA tokenization now uses:
+The Comparison Lab uses one fixed forensic-document test case and one question:
 
-```python
-padding="max_length"
-return_tensors="pt"
-return_overflowing_tokens=True
+**What information should a forensic report contain?**
+
+It contrasts:
+- BERT QA: extractive answer span
+- Fast RAG: evidence retrieval
+- RAG + Local LLM: Ollama generation from retrieved evidence
+- RAG + Cloud LLM: API generation from retrieved evidence
+
+## Performance
+
+- Models are lazy-loaded.
+- Models are cached with `st.cache_resource`.
+- Fast RAG uses TF-IDF and avoids an embedding-model download.
+- Semantic RAG loads MiniLM only when selected.
+- Large documents are chunked.
+- Spinners and progress bars show stages.
+
+## Run
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
 ```
 
-so all overflow windows have compatible tensor dimensions.
+## Local LLM
 
-The application also:
+Install Ollama separately and pull a model, e.g. `ollama pull qwen2.5:3b`. Then use the Local LLM module.
 
-- splits long PDF text into smaller overlapping passages;
-- preserves PDF page markers where text extraction provides them;
-- supports TXT/PDF/DOCX;
-- supports BERT, ALBERT and RoBERTa QA;
-- supports BERT/RoBERTa/DistilBERT NER;
-- supports BERT/ALBERT/RoBERTa contextual representations;
-- includes FLAN-T5 chat;
-- contains Learning and Application modules.
+## Cloud LLM
+
+Enter the provider API key in the UI or use Streamlit Secrets. Never commit keys to GitHub.
 
 ## Streamlit Cloud
 
-Upload `app.py` and `requirements.txt` to GitHub and deploy.
-
-If the PDF is scanned/image-only, `pypdf` may extract little or no text.
-OCR would be required for scanned PDFs.
-
-## Important
-
-The QA model is extractive: it selects an answer span from the supplied
-document/context. The score displayed is a model-score-derived indicator,
-not proof of factual correctness.
+Deploy `app.py` and `requirements.txt`. Start with the fast modules; heavy models load only when explicitly used.
