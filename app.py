@@ -125,7 +125,12 @@ def extract_file(uploaded):
     if name.endswith(".pdf"):
         import pypdf
         reader = pypdf.PdfReader(io.BytesIO(data))
-        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        pages = []
+        for page_no, page in enumerate(reader.pages, start=1):
+            page_text = page.extract_text() or ""
+            if page_text.strip():
+                pages.append(f"\n[Page {page_no}]\n{page_text}")
+        text = "\n".join(pages)
         return text, sha256
 
     if name.endswith(".docx"):
@@ -140,7 +145,7 @@ def extract_file(uploaded):
 # ============================================================
 # QA
 # ============================================================
-def split_context(text, max_chars=4500, overlap=400):
+def split_context(text, max_chars=3200, overlap=350):
     text = re.sub(r"\s+", " ", text).strip()
 
     if len(text) <= max_chars:
@@ -168,23 +173,49 @@ def split_context(text, max_chars=4500, overlap=400):
 
 
 def answer_question(model_id, question, context):
+    """Extractive QA over manageable text chunks.
+
+    Important Streamlit/Transformers fix:
+    - Tokenization uses padding='max_length' with return_tensors='pt'
+      so overflow features have consistent tensor dimensions.
+    - offset mappings are retained for answer-span extraction.
+    """
     tokenizer, model = load_qa(model_id)
     chunks = split_context(context)
     candidates = []
 
     for chunk_index, chunk in enumerate(chunks):
-        encoded = tokenizer(
-            question,
-            chunk,
-            return_tensors="pt",
-            truncation="only_second",
-            max_length=384,
-            stride=96,
-            return_overflowing_tokens=True,
-            return_offsets_mapping=True,
-        )
+        try:
+            encoded = tokenizer(
+                question,
+                chunk,
+                return_tensors="pt",
+                truncation="only_second",
+                max_length=384,
+                stride=96,
+                return_overflowing_tokens=True,
+                return_offsets_mapping=True,
+                padding="max_length",
+            )
+        except Exception:
+            # Some tokenizer/model combinations can be more robust when
+            # overflow features are created without an immediate tensor
+            # conversion. Pad each feature below if necessary.
+            raw = tokenizer(
+                question,
+                chunk,
+                truncation="only_second",
+                max_length=384,
+                stride=96,
+                return_overflowing_tokens=True,
+                return_offsets_mapping=True,
+                padding="max_length",
+            )
+            encoded = tokenizer.pad(raw, return_tensors="pt")
 
-        for feature_index in range(encoded["input_ids"].shape[0]):
+        feature_count = encoded["input_ids"].shape[0]
+
+        for feature_index in range(feature_count):
             inputs = {
                 "input_ids": encoded["input_ids"][feature_index:feature_index+1],
                 "attention_mask": encoded["attention_mask"][feature_index:feature_index+1],
@@ -198,7 +229,7 @@ def answer_question(model_id, question, context):
 
             start_logits = output.start_logits[0]
             end_logits = output.end_logits[0]
-            offsets = encoded["offset_mapping"][feature_index]
+            offsets = encoded["offset_mapping"][feature_index].tolist()
             sequence_ids = encoded.sequence_ids(feature_index)
 
             context_positions = [
@@ -212,16 +243,21 @@ def answer_question(model_id, question, context):
                 start_logits[context_positions],
                 min(12, len(context_positions))
             )
-
             end_top = torch.topk(
                 end_logits[context_positions],
                 min(12, len(context_positions))
             )
 
-            for sv, sl in zip(start_top.values.tolist(), start_top.indices.tolist()):
+            for sv, sl in zip(
+                start_top.values.tolist(),
+                start_top.indices.tolist()
+            ):
                 s_pos = context_positions[sl]
 
-                for ev, el in zip(end_top.values.tolist(), end_top.indices.tolist()):
+                for ev, el in zip(
+                    end_top.values.tolist(),
+                    end_top.indices.tolist()
+                ):
                     e_pos = context_positions[el]
 
                     if e_pos < s_pos or e_pos - s_pos > 30:
@@ -236,14 +272,12 @@ def answer_question(model_id, question, context):
                     answer = chunk[int(start_char):int(end_char)].strip()
 
                     if answer:
-                        candidates.append(
-                            {
-                                "answer": answer,
-                                "score": float(sv + ev),
-                                "context": chunk,
-                                "chunk": chunk_index,
-                            }
-                        )
+                        candidates.append({
+                            "answer": answer,
+                            "score": float(sv + ev),
+                            "context": chunk,
+                            "chunk": chunk_index,
+                        })
 
     if not candidates:
         return None
@@ -253,8 +287,8 @@ def answer_question(model_id, question, context):
     top = candidates[0]
     scores = torch.tensor([x["score"] for x in candidates[:20]])
     probs = torch.softmax(scores - scores.max(), dim=0)
-
     top["confidence"] = float(probs[0]) * 100
+
     return top
 
 
@@ -338,7 +372,7 @@ def generate_answer(prompt):
         prompt,
         return_tensors="pt",
         truncation=True,
-        max_length=512,
+        max_length=384,
     )
 
     with torch.inference_mode():
