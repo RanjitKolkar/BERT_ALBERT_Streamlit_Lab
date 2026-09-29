@@ -1,64 +1,103 @@
-# BERT & ALBERT Teaching Lab — Streamlit Deployment
+# Transformer AI Teaching Lab
 
-This version is designed specifically for Streamlit deployment.
+A Streamlit teaching and experimentation application covering BERT, ALBERT,
+RoBERTa, NER, extractive Question Answering, text representations and a
+separate generative chat demonstration.
 
-## Models
+## Main structure
 
-- BERT: bert-base-uncased
-- ALBERT: albert-base-v2
+### Learning Module
 
-## Deploy to Streamlit Community Cloud
+- Transformers
+- BERT
+- ALBERT
+- NER
+- Question Answering
+- Tokenization
+- Self-Attention
+- Embeddings
+- BERT vs ALBERT
+- Encoder vs Generative Models
 
-1. Create a GitHub repository.
-2. Upload:
-   - app.py
-   - requirements.txt
-3. In Streamlit Community Cloud choose **Deploy an app**.
-4. Select the repository and `app.py`.
-5. Deploy.
+### Application Module
 
-No Windows virtual environment or BAT file is required.
+1. Question Answering
+2. Named Entity Recognition
+3. Text Representation
+4. Chat / General AI
 
-## Local test
+## Inputs
 
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
+Application tasks can accept:
 
-## How models are handled
-
-The selected model is downloaded from Hugging Face the first time it is used.
-`st.cache_resource` keeps the loaded model available during the application
-session so it is not repeatedly loaded for every button click.
-
-Only the selected model is loaded through the application function.
-
-## Input
-
-- Direct text
-- Questions
+- Typed/pasted text
 - TXT
 - PDF
 - DOCX
 
-## Output
+## QA models
 
-- Tokenization
-- Token IDs
-- Transformer output tensor dimensions
-- Example contextual representation
-- Teaching explanation
+- BERT: deepset/bert-base-cased-squad2
+- ALBERT: twmkn9/albert-base-v2-squad2
+- RoBERTa: deepset/roberta-base-squad2
+
+## NER models
+
+- BERT NER: dslim/bert-base-NER
+- RoBERTa NER: Jean-Baptiste/roberta-large-ner-english
+- DistilBERT NER: elastic/distilbert-base-uncased-finetuned-conll03-english
+
+## Text representation
+
+- BERT: bert-base-uncased
+- ALBERT: albert-base-v2
+- RoBERTa: roberta-base
+
+## Chat
+
+The chat demonstration uses:
+
+- google/flan-t5-small
+
+This is intentional. BERT and ALBERT are encoder models and are not
+general-purpose text generators.
+
+## Streamlit deployment
+
+Upload `app.py` and `requirements.txt` to GitHub and deploy `app.py`
+using Streamlit Community Cloud.
+
+No Windows-specific setup is required.
+
+Models are downloaded automatically from Hugging Face on first use and
+cached by Streamlit during the running application.
+
+## Teaching methodology
+
+```text
+LEARN
+  ↓
+Understand architecture
+  ↓
+SELECT TASK
+  ↓
+Provide input
+  ↓
+SELECT MODEL
+  ↓
+RUN INFERENCE
+  ↓
+OBSERVE OUTPUT
+  ↓
+EXPLAIN HOW IT WORKED
+  ↓
+COMPARE MODELS
+```
 
 ## Important
 
-The application demonstrates pretrained encoder models. It does not claim
-that generic BERT or ALBERT can answer arbitrary questions or classify arbitrary
-documents by themselves.
+The model score/confidence shown in QA and NER is an indicator produced from
+model outputs. It should not be treated as proof of factual correctness.
 
-For true question answering, sentiment analysis, phishing classification,
-forensic classification, etc., a task-specific model/head should be used.
-
-## Streamlit deployment note
-
-CPU inference is used. No CUDA/GPU setup is required.
+The chat module is a small generative demonstration and is not intended to
+be equivalent to a large commercial conversational model.
