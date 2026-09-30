@@ -5,3 +5,11 @@ huggingface_hub>=0.25
 safetensors>=0.4
 sentencepiece>=0.2
 accelerate>=0.30
+pypdf
+docx2txt
+langchain
+langchain-community
+langchain-openai
+chromadb
+tiktoken
+python-dotenv
