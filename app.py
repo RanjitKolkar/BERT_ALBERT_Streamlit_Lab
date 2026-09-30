@@ -1,178 +1,476 @@
-import re, io
+
+import os, sys, time
+from pathlib import Path
 import streamlit as st
 
-st.set_page_config(page_title='Transformer AI Teaching Lab', page_icon='🤖', layout='wide', initial_sidebar_state='expanded')
+st.set_page_config(page_title="Hugging Face BERT, NER & Local LLM Lab",
+                   page_icon="🤗", layout="wide", initial_sidebar_state="expanded")
 
-st.markdown('''<style>
-.block-container{padding-top:1rem}.module{border:1px solid rgba(128,128,128,.25);border-radius:14px;padding:16px;margin:8px 0;background:rgba(128,128,128,.05)}
-.badge{display:inline-block;padding:3px 9px;border-radius:20px;background:rgba(0,120,255,.12);font-size:.8rem}.small{opacity:.75;font-size:.86rem}
-</style>''', unsafe_allow_html=True)
+ROOT = Path(__file__).resolve().parent
+LOCAL_MODEL = ROOT / "local_models" / "Qwen2.5-0.5B-Instruct"
 
-DEMO_DOC='''Digital Forensic Evidence Handling — Teaching Case\n\nDigital evidence should be acquired using a documented and repeatable process. The examiner should identify the device, record its condition, preserve the original evidence, and calculate cryptographic hashes where appropriate. A forensic image should be created using a validated acquisition procedure. The working copy may then be examined while the original evidence is protected from unnecessary alteration.\n\nThe chain of custody records who collected, transferred, received, stored, examined, or otherwise handled the evidence. Each transfer should be documented with the date, time, persons involved, purpose, and relevant identifiers.\n\nA forensic report should describe the scope, tools and versions used, acquisition method, examination steps, findings, limitations, and supporting evidence. Screenshots, hash values, logs, and other reproducibility information can help another examiner understand how the findings were obtained.\n\nForensic conclusions should be expressed carefully. An examiner should distinguish between observations, interpretations, and limitations. When evidence is incomplete, the report should clearly state what could and could not be established from the available material.'''
-DEMO_Q='What information should a forensic report contain?'
+st.markdown("""
+<style>
+.block-container{padding-top:1rem;max-width:1450px}
+[data-testid="stSidebar"]{min-width:285px;max-width:300px}
+.panel{border:1px solid rgba(128,128,128,.25);border-radius:15px;padding:17px;
+background:rgba(128,128,128,.045);margin-bottom:12px}
+.entity{display:inline-block;padding:6px 9px;margin:3px;border-radius:8px;
+background:rgba(0,120,255,.12)}
+.small{opacity:.72;font-size:.86rem}
+</style>
+""", unsafe_allow_html=True)
+
+DEMO_NER = ("Dr. Ranjit Kolkar visited National Forensic Sciences University in Goa "
+            "on 12 September 2026 for a Digital Forensics workshop. "
+            "The team later travelled to New Delhi to meet officials from the Ministry of Home Affairs.")
+DEMO_Q = "What should a forensic report contain?"
+DEMO_CONTEXT = """A forensic report should describe the scope of the examination, tools and versions used,
+the acquisition method, examination steps, findings, limitations, and supporting evidence.
+Screenshots, hash values, logs, and other reproducibility information can help another examiner
+understand how the findings were obtained."""
+
+NER_MODELS = {
+    "BERT NER — dslim": "dslim/bert-base-NER",
+    "DistilBERT NER": "elastic/distilbert-base-uncased-finetuned-conll03-english",
+    "RoBERTa NER": "Jean-Baptiste/roberta-large-ner-english",
+}
+BERT_MODELS = {
+    "BERT base uncased": "google-bert/bert-base-uncased",
+    "BERT base cased": "google-bert/bert-base-cased",
+    "DistilBERT": "distilbert/distilbert-base-uncased",
+    "RoBERTa": "FacebookAI/roberta-base",
+    "ALBERT": "albert/albert-base-v2",
+}
 
 @st.cache_resource(show_spinner=False)
-def qa_model(model_id):
+def load_pipe(task, model_id, aggregation=True):
     from transformers import pipeline
-    return pipeline('question-answering', model=model_id, tokenizer=model_id, device=-1)
+    kw = dict(task=task, model=model_id, tokenizer=model_id, device=-1)
+    if task in ("ner","token-classification") and aggregation:
+        kw["aggregation_strategy"] = "simple"
+    return pipeline(**kw)
 
 @st.cache_resource(show_spinner=False)
-def ner_model(model_id):
-    from transformers import pipeline
-    return pipeline('ner', model=model_id, tokenizer=model_id, aggregation_strategy='simple', device=-1)
+def load_local_llm():
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    import torch
+    if not LOCAL_MODEL.exists():
+        raise FileNotFoundError("Local Qwen model is not installed. Run scripts/download_local_llm.py")
+    tok = AutoTokenizer.from_pretrained(str(LOCAL_MODEL), local_files_only=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        str(LOCAL_MODEL), local_files_only=True, torch_dtype="auto"
+    )
+    return tok, model
 
-@st.cache_resource(show_spinner=False)
-def embed_model():
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device='cpu')
+def local_generate(question, context, max_new_tokens=220):
+    import torch
+    tok, model = load_local_llm()
+    messages = [
+        {"role":"system","content":"You are a teaching assistant. Answer only from the supplied context. If the answer is absent, say so."},
+        {"role":"user","content":f"Context:\n{context}\n\nQuestion:\n{question}"}
+    ]
+    text = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = tok([text], return_tensors="pt")
+    with torch.no_grad():
+        out = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+    new = out[0][inputs.input_ids.shape[-1]:]
+    return tok.decode(new, skip_special_tokens=True)
 
-def extract_text(uploaded):
-    data=uploaded.read(); name=uploaded.name.lower()
-    if name.endswith('.txt'): return data.decode('utf-8','ignore')
-    if name.endswith('.pdf'):
-        from pypdf import PdfReader
-        r=PdfReader(io.BytesIO(data)); return '\n\n'.join(f'[Page {i}]\n{p.extract_text() or ""}' for i,p in enumerate(r.pages,1))
-    if name.endswith('.docx'):
-        from docx import Document
-        d=Document(io.BytesIO(data)); return '\n'.join(p.text for p in d.paragraphs)
-    return ''
+def progress_run(task, model_id, text, **kwargs):
+    p = st.progress(0, "Connecting to Hugging Face…")
+    p.progress(20, "Loading / downloading model…")
+    pipe = load_pipe(task, model_id)
+    p.progress(70, "Running inference…")
+    result = pipe(text, **kwargs)
+    p.progress(100, "Complete")
+    time.sleep(.1)
+    p.empty()
+    return result
 
-def chunks(text,size=900,overlap=120):
-    text=re.sub(r'\s+',' ',text).strip(); out=[]; start=0
-    while start<len(text):
-        end=min(len(text),start+size); out.append(text[start:end])
-        if end==len(text): break
-        start=max(0,end-overlap)
-    return out
+def rows(entities):
+    return [{"Entity":e.get("word",""),"Label":e.get("entity_group",e.get("entity","")),
+             "Confidence":round(float(e.get("score",0)),4),
+             "Start":e.get("start",""),"End":e.get("end","")} for e in entities]
 
-def tfidf(query,docs,k=3):
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.metrics.pairwise import cosine_similarity
-    if not docs:return []
-    v=TfidfVectorizer(stop_words='english'); m=v.fit_transform(docs+[query]); s=cosine_similarity(m[-1],m[:-1]).ravel()
-    ids=s.argsort()[::-1][:k]; return [(int(i),float(s[i]),docs[i]) for i in ids]
+st.sidebar.title("🤗 HF AI Teaching Lab")
+st.sidebar.caption("BERT • NER • Local LLM")
+page = st.sidebar.radio("Modules",[
+    "🏠 Dashboard","📚 Learning","🧩 NER Explorer","🧠 BERT Explorer",
+    "🤖 Local LLM","🔬 Compare Models","⚙️ Model Setup"
+])
+st.sidebar.divider()
+st.sidebar.caption("Task-specific models are downloaded only when used.")
 
-def semantic(query,docs,k=3):
-    m=embed_model(); q=m.encode([query],normalize_embeddings=True); d=m.encode(docs,normalize_embeddings=True,show_progress_bar=False); scores=(d@q[0]).tolist(); ids=sorted(range(len(scores)),key=lambda i:scores[i],reverse=True)[:k]
-    return [(i,float(scores[i]),docs[i]) for i in ids]
+st.title("Hugging Face BERT, NER & Local LLM Teaching Lab")
+st.caption("A classroom application for understanding how pretrained and fine-tuned Transformer models are selected, downloaded and used.")
 
-def ollama(prompt,model,url):
-    import requests
-    r=requests.post(url.rstrip('/')+'/api/generate',json={'model':model,'prompt':prompt,'stream':False},timeout=180); r.raise_for_status(); return r.json()['response']
+if page == "🏠 Dashboard":
+    st.subheader("Laboratory overview")
+    for c,(icon,title,desc) in zip(st.columns(4),[
+        ("🧩","NER","Identify people, places, organisations and other entities."),
+        ("🧠","BERT","Explore base Transformer checkpoints and task heads."),
+        ("🤖","Local LLM","Ask questions using a model stored inside this project."),
+        ("🔬","Compare","Run the same input through multiple models.")
+    ]):
+        with c: st.markdown(f'<div class="panel"><h3>{icon} {title}</h3><div class="small">{desc}</div></div>',unsafe_allow_html=True)
 
-def cloud(provider,prompt,key,model):
-    import requests
-    if provider=='OpenAI':
-        r=requests.post('https://api.openai.com/v1/chat/completions',headers={'Authorization':f'Bearer {key}'},json={'model':model,'messages':[{'role':'user','content':prompt}],'temperature':.1},timeout=120); r.raise_for_status(); return r.json()['choices'][0]['message']['content']
-    if provider=='Google Gemini':
-        u=f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}'; r=requests.post(u,json={'contents':[{'parts':[{'text':prompt}]}]},timeout=120); r.raise_for_status(); return r.json()['candidates'][0]['content']['parts'][0]['text']
-    r=requests.post('https://api.anthropic.com/v1/messages',headers={'x-api-key':key,'anthropic-version':'2023-06-01','content-type':'application/json'},json={'model':model,'max_tokens':700,'messages':[{'role':'user','content':prompt}]},timeout=120); r.raise_for_status(); return r.json()['content'][0]['text']
-
-def grounded_prompt(context,q):
-    return f'''Answer using ONLY the supplied document evidence. If the answer is absent, say so. Be concise and distinguish evidence from inference.\n\nDOCUMENT EVIDENCE:\n{context}\n\nQUESTION:\n{q}'''
-
-st.sidebar.title('🤖 AI Teaching Lab'); st.sidebar.caption('Transformers • RAG • Local LLM • Cloud LLM')
-items=['🏠 Dashboard','📘 Learning','🧪 Comparison Lab','📄 Document QA','🔎 RAG Lab','💻 Local LLM','☁️ Cloud LLM','🧩 NER Lab','⚙️ Settings']
-sel=st.sidebar.radio('Modules',items)
-page=items.index(sel)
-st.sidebar.divider(); st.sidebar.caption('Models are lazy-loaded only when required. Cached models are reused during the session.')
-st.title('Transformer AI Teaching Lab')
-st.caption('Panel-based laboratory for understanding and comparing Transformer and document-AI approaches.')
-
-if page==0:
-    st.subheader('Teaching dashboard')
-    c=st.columns(4)
-    for col,icon,title,desc in zip(c,['📘','🧪','🔎','🤖'],['Learn','Compare','Retrieve','Generate'],['Transformer concepts','Same input, different AI approaches','RAG evidence retrieval','Local and cloud generation']):
-        col.markdown(f'<div class="module"><h3>{icon} {title}</h3><span class="small">{desc}</span></div>',unsafe_allow_html=True)
-    st.markdown('### Common test case')
-    st.info(f'**Question:** {DEMO_Q}')
-    with st.expander('View fixed demonstration document'): st.write(DEMO_DOC)
-    st.markdown('''### Teaching flow\n**BERT QA → Embeddings → RAG → Local LLM → Cloud LLM**\n\nThe comparison uses one document and one question so students can see exactly what changes between approaches.''')
-
-elif page==1:
-    st.subheader('📘 Learning Module')
-    t=st.selectbox('Topic',['Transformers','BERT','Tokenization','Self-Attention','Embeddings','RAG','Local LLMs','Cloud LLMs','BERT QA vs RAG'])
-    lessons={'Transformers':('Transformers use attention to process relationships between tokens.','Input → embeddings → attention → feed-forward layers → output.'),'BERT':('BERT is an encoder-only Transformer for language understanding.','Typical uses include NER, classification, embeddings and extractive QA.'),'Tokenization':('Tokenization converts text into model-readable tokens.','Words may be split into subwords and special tokens.'),'Self-Attention':('Each token can use information from other tokens.','Attention computes how strongly other tokens contribute.'),'Embeddings':('Embeddings turn text into vectors.','Semantically related text can have nearby vectors.'),'RAG':('Retrieval-Augmented Generation combines retrieval with generation.','Document → chunks → search → relevant evidence → LLM → answer.'),'Local LLMs':('A local LLM runs on your own machine or infrastructure.','It offers control over data and infrastructure but needs suitable hardware.'),'Cloud LLMs':('A cloud LLM is accessed through an API.','It avoids local model hosting but introduces API, privacy and governance considerations.'),'BERT QA vs RAG':('BERT QA predicts an answer span; RAG retrieves evidence and can generate an answer.','This lab demonstrates both on the same case.')}
-    a,b=lessons[t]; st.markdown(f'### {t}'); st.info(a); st.write(b)
-
-elif page==2:
-    st.subheader('🧪 Comparison Lab')
-    q=st.text_input('Test question',DEMO_Q); st.info('Fixed document + common question = controlled classroom comparison.')
-    if st.button('▶ Run comparison',type='primary',use_container_width=True):
-        bar=st.progress(0,'Preparing comparison…'); results=[]
+    st.markdown("### Ready-made demonstration")
+    st.info(DEMO_NER)
+    if st.button("▶ Run BERT NER demonstration",type="primary",use_container_width=True):
         try:
-            bar.progress(20,'Loading BERT QA…'); p=qa_model('deepset/bert-base-cased-squad2'); bar.progress(45,'Running BERT extractive QA…'); r=p(question=q,context=DEMO_DOC); results.append(('BERT QA',r['answer'],f'Span score: {r["score"]:.3f}','Extractive'))
-        except Exception as e: results.append(('BERT QA','Model unavailable',str(e)[:160],'Extractive'))
-        bar.progress(70,'Running fast RAG retrieval…'); rr=tfidf(q,chunks(DEMO_DOC),3); evidence='\n\n'.join(x[2] for x in rr); results.append(('Fast RAG',evidence,f'Top similarity: {rr[0][1]:.3f}' if rr else 'No match','Retrieval'))
-        bar.progress(100,'Comparison complete')
-        for col,item in zip(st.columns(2),results):
-            with col:
-                st.markdown(f'### {item[0]}'); st.markdown(f'<div class="module"><span class="badge">{item[3]}</span><br><br>{item[1]}</div>',unsafe_allow_html=True); st.caption(item[2])
-        st.markdown('### What is different?'); st.write('BERT QA tries to identify an answer span. RAG first retrieves the evidence; it needs a generator such as a local or cloud LLM to turn that evidence into a conversational answer.')
-
-elif page==3:
-    st.subheader('📄 Document QA'); up=st.file_uploader('Upload PDF, DOCX or TXT',type=['pdf','docx','txt']); q=st.text_input('Question')
-    if up and q and st.button('Run BERT QA',type='primary'):
-        with st.spinner('Extracting document text…'): text=extract_text(up)
-        st.success(f'{len(text):,} characters extracted')
-        with st.spinner('Loading BERT QA model (first use can take longer)…'): p=qa_model('deepset/bert-base-cased-squad2')
-        best=None
-        bar=st.progress(0,'Searching document chunks…'); cs=chunks(text,3200,350)
-        for i,cx in enumerate(cs):
-            try:
-                r=p(question=q,context=cx)
-                if best is None or r['score']>best['score']: best=r
-            except Exception: pass
-            bar.progress((i+1)/max(1,len(cs)),f'Checked chunk {i+1}/{len(cs)}')
-        if best:
-            st.markdown('### Answer'); st.success(best['answer']); st.caption(f'Score: {best["score"]:.3f} (not a factual probability)')
-            with st.expander('Supporting context'): st.write(best['context'])
-
-elif page==4:
-    st.subheader('🔎 RAG Laboratory'); up=st.file_uploader('Document',type=['pdf','docx','txt'],key='ragfile'); q=st.text_input('Question',key='ragq'); method=st.radio('Retrieval', ['Fast TF-IDF RAG','Semantic RAG (MiniLM)'],horizontal=True); k=st.slider('Top-K',1,5,3)
-    if up and q and st.button('Retrieve evidence',type='primary'):
-        with st.spinner('Extracting document…'): text=extract_text(up)
-        ds=chunks(text); bar=st.progress(15,'Creating searchable chunks…')
-        try:
-            if method.startswith('Fast'): bar.progress(60,'Running fast retrieval…'); rr=tfidf(q,ds,k)
-            else: bar.progress(30,'Loading MiniLM embeddings…'); rr=semantic(q,ds,k); bar.progress(80,'Running semantic similarity…')
-            bar.progress(100,'Retrieval complete'); st.metric('Chunks indexed',len(ds))
-            for n,(_,s,cx) in enumerate(rr,1):
-                with st.expander(f'#{n} • similarity {s:.3f}'): st.write(cx)
+            result=progress_run("ner",NER_MODELS["BERT NER — dslim"],DEMO_NER)
+            st.dataframe(rows(result),use_container_width=True,hide_index=True)
         except Exception as e: st.error(str(e))
 
-elif page==5:
-    st.subheader('💻 Local LLM Laboratory'); st.caption('Optional: connect to Ollama running locally or on a lab server.')
-    url=st.text_input('Ollama URL','http://localhost:11434'); model=st.text_input('Model','qwen2.5:3b'); up=st.file_uploader('Document',type=['pdf','docx','txt'],key='localfile'); q=st.text_input('Question',key='localq'); k=st.slider('Retrieved chunks',1,5,3,key='localk')
-    if up and q and st.button('Run Local RAG',type='primary'):
-        with st.spinner('Extracting and retrieving evidence…'): text=extract_text(up); rr=tfidf(q,chunks(text),k); ctx='\n\n'.join(x[2] for x in rr)
+    st.markdown("### Learning path")
+    st.markdown("""
+    **1. Transformer → 2. BERT encoder → 3. Tokenization → 4. Fine-tuning →
+    5. NER → 6. Local LLM → 7. RAG → 8. Model comparison**
+
+    The key teaching idea is that a **base BERT model is not automatically an NER model**.
+    A task-specific checkpoint adds a task head and training for the desired task.
+    """)
+
+elif page == "📚 Learning":
+    st.subheader("📚 Detailed Learning Module")
+    topic=st.selectbox("Choose a lesson",[
+        "1. What is a Transformer?",
+        "2. What is BERT?",
+        "3. Encoder vs Decoder",
+        "4. Tokenization",
+        "5. Self-Attention",
+        "6. Pretraining and Fine-Tuning",
+        "7. What is NER?",
+        "8. How BERT performs NER",
+        "9. Base Model vs Task Model",
+        "10. Hugging Face Hub and Model Loading",
+        "11. Confidence Scores",
+        "12. Local LLMs",
+        "13. RAG with a Local LLM",
+        "14. BERT QA vs RAG",
+        "15. Model Selection and Trade-offs",
+    ])
+    lessons={
+"1. What is a Transformer?":(
+"Transformers are neural-network architectures built around attention mechanisms.",
+"""A Transformer processes a sequence by representing tokens as vectors and allowing tokens
+to interact through attention. Unlike older recurrent architectures, the main computation
+can be highly parallelised.
+
+Pipeline:
+Text → Tokenizer → Token IDs → Embeddings → Attention layers → Task head → Output
+
+Teaching example:
+“The officer visited Goa.”
+Attention helps the model represent relationships between words such as “officer”, “visited” and “Goa”."""
+),
+"2. What is BERT?":(
+"BERT means Bidirectional Encoder Representations from Transformers.",
+"""BERT is an encoder-only Transformer designed primarily for language understanding.
+It reads context from both directions.
+
+Important characteristics:
+• Encoder-only architecture
+• Bidirectional contextual representations
+• Pretrained on large text corpora
+• Adaptable through fine-tuning
+• Useful for classification, NER, similarity, QA and embeddings
+
+BERT is not inherently a chatbot. A base BERT checkpoint produces representations; a
+task-specific model adds an appropriate prediction head."""
+),
+"3. Encoder vs Decoder":(
+"Encoder and decoder Transformers solve different classes of problems.",
+"""Encoder models such as BERT are strong at understanding and representing text.
+Decoder/causal models such as Qwen are designed to generate text one token at a time.
+
+Encoder:
+Text → contextual representation → classification / NER / QA
+
+Decoder:
+Prompt → next-token prediction → generated text
+
+This distinction explains why BERT NER and a local Qwen chatbot are separate modules."""
+),
+"4. Tokenization":(
+"Tokenization converts human text into pieces that a Transformer can process.",
+"""Example:
+“National Forensic Sciences University”
+
+may be represented as whole words or subwords depending on the tokenizer.
+
+The tokenizer produces:
+• tokens
+• token IDs
+• attention masks
+• sometimes special tokens
+
+NER is performed at the token level and then token predictions are aggregated into human-readable entities."""
+),
+"5. Self-Attention":(
+"Self-attention lets each token assign different importance to other tokens.",
+"""Conceptually:
+Query = what this token is looking for
+Key = what another token represents
+Value = information contributed by that token
+
+Attention(Q,K,V) = softmax(QKᵀ / √dₖ)V
+
+Multiple attention heads allow the model to learn different relationships simultaneously.
+
+Classroom experiment:
+Change a sentence and observe how entity recognition or classification changes."""
+),
+"6. Pretraining and Fine-Tuning":(
+"Pretraining learns general language patterns; fine-tuning adapts the model to a specific task.",
+"""Example:
+BERT base → general language representation
+
+BERT + NER training → token labels such as:
+B-PER, I-PER, B-ORG, I-ORG, B-LOC, I-LOC
+
+BERT + sentiment training → POSITIVE / NEGATIVE
+
+Therefore, two models can share the BERT architecture but behave very differently because
+their task-specific weights are different."""
+),
+"7. What is NER?":(
+"Named Entity Recognition identifies spans of text and assigns semantic categories.",
+"""Typical categories include:
+PERSON — Dr. Ranjit Kolkar
+ORGANIZATION — National Forensic Sciences University
+LOCATION — Goa
+DATE — 12 September 2026
+
+NER is usually formulated as token classification.
+
+Applications:
+• Digital forensics
+• Legal document analysis
+• Intelligence/OSINT
+• News analysis
+• Information extraction
+• Case-file indexing"""),
+"8. How BERT performs NER":(
+"BERT NER predicts a label for each token after contextual encoding.",
+"""Example:
+“Ranjit visited Goa”
+
+Tokenizer → [Ranjit] [visited] [Goa]
+             ↓        ↓        ↓
+BERT contextual representations
+             ↓        ↓        ↓
+NER classifier
+             ↓        ↓        ↓
+           PERSON   O      LOCATION
+
+A post-processing step combines subword predictions into entity spans."""
+),
+"9. Base Model vs Task Model":(
+"A base checkpoint and a fine-tuned checkpoint should not be treated as interchangeable.",
+"""Base:
+google-bert/bert-base-uncased
+
+Task-specific:
+dslim/bert-base-NER
+
+The first is a general BERT encoder. The second has been adapted for NER.
+Selecting a model therefore requires checking:
+1. architecture
+2. task
+3. tokenizer
+4. labels
+5. language
+6. model size
+7. license
+8. intended use"""),
+"10. Hugging Face Hub and Model Loading":(
+"The Hugging Face Hub is a repository of pretrained and fine-tuned models.",
+"""The application accepts a model ID such as:
+dslim/bert-base-NER
+
+Transformers can download model files from the Hub and cache them locally.
+A local directory can also be supplied to from_pretrained(), allowing offline inference.
+
+Teaching flow:
+Hub model ID → download → local cache/folder → tokenizer + weights → pipeline → inference"""),
+"11. Confidence Scores":(
+"A pipeline score is a model prediction score, not a guarantee that the prediction is factually correct.",
+"""For NER:
+PERSON — 0.98
+
+This indicates strong model preference for the label/span under that model's scoring
+procedure. It does NOT prove that the person actually exists or that the information is true.
+
+For forensic applications, model output should therefore be treated as an analytical aid,
+not independent proof."""),
+"12. Local LLMs":(
+"A local LLM runs on the user's machine or controlled infrastructure.",
+"""This project includes a setup for Qwen2.5-0.5B-Instruct.
+
+Benefits:
+• Can run without sending document content to a cloud API
+• Useful for classroom demonstrations
+• Model files can be kept with the project
+• Reproducible environment
+
+Limitations:
+• Small models are less capable than larger models
+• CPU inference can be slow
+• RAM/storage requirements increase with model size"""),
+"13. RAG with a Local LLM":(
+"RAG combines retrieval with generation.",
+"""Document → chunks → embeddings/search → relevant passages → local LLM → answer
+
+The LLM is not expected to memorize the uploaded document.
+Instead, the application supplies retrieved evidence in the prompt.
+
+This is especially useful for long documents because the complete document does not need
+to be placed in every prompt."""),
+"14. BERT QA vs RAG":(
+"BERT QA and RAG solve document-question tasks differently.",
+"""BERT extractive QA:
+Question + context → predict start/end positions → answer span
+
+RAG:
+Question → retrieve relevant chunks → LLM generates answer
+
+BERT QA is excellent for teaching extractive question answering.
+RAG is better suited to conversational document assistants, especially when answers need
+synthesis across multiple passages."""),
+"15. Model Selection and Trade-offs":(
+"Choosing a model is an engineering decision, not simply a search for the largest model.",
+"""Consider:
+• Task: NER, classification, generation, QA
+• Language
+• Model size
+• CPU/GPU availability
+• Latency
+• Accuracy on the relevant domain
+• License
+• Privacy requirements
+• Hallucination risk
+• Explainability and evidence requirements
+
+For teaching, start small and make the model's behaviour visible."""
+)}
+    a,b=lessons[topic]
+    st.markdown(f"### {topic}")
+    st.info(a)
+    st.write(b)
+
+elif page == "🧩 NER Explorer":
+    st.subheader("🧩 NER Explorer — any compatible Hugging Face model")
+    mode=st.radio("Select model",["Recommended","Enter model ID"],horizontal=True)
+    if mode=="Recommended":
+        label=st.selectbox("Model",list(NER_MODELS))
+        mid=NER_MODELS[label]
+    else:
+        mid=st.text_input("Hugging Face model ID","dslim/bert-base-NER")
+    txt=st.text_area("Input",DEMO_NER,height=170)
+    if st.button("🚀 Download / Load & Run NER",type="primary",use_container_width=True):
         try:
-            with st.spinner(f'Generating with {model}…'): ans=ollama(grounded_prompt(ctx,q),model,url)
-            st.markdown('### Local LLM answer'); st.success(ans)
-            with st.expander('Retrieved evidence'):
-                for _,s,cx in rr: st.write(f'**Similarity {s:.3f}**\n\n{cx}')
-        except Exception as e: st.error(f'Could not connect to Ollama: {e}')
+            result=progress_run("ner",mid.strip(),txt)
+            st.markdown("### Entities")
+            st.dataframe(rows(result),use_container_width=True,hide_index=True)
+            st.markdown("### Visual output")
+            st.markdown(" ".join([f'<span class="entity"><b>{e["word"]}</b> [{e.get("entity_group",e.get("entity"))}] {e["score"]:.2f}</span>' for e in result]),unsafe_allow_html=True)
+        except Exception as e:
+            st.error("The selected model is not compatible with this NER pipeline or could not be downloaded.")
+            st.code(str(e))
 
-elif page==6:
-    st.subheader('☁️ Cloud LLM Laboratory'); provider=st.selectbox('Provider',['OpenAI','Google Gemini','Anthropic']); defaults={'OpenAI':'gpt-5-mini','Google Gemini':'gemini-2.5-flash','Anthropic':'claude-3-5-haiku-latest'}; model=st.text_input('Model',defaults[provider]); keyname={'OpenAI':'OPENAI_API_KEY','Google Gemini':'GEMINI_API_KEY','Anthropic':'ANTHROPIC_API_KEY'}[provider]; key=st.text_input('API key',type='password'); up=st.file_uploader('Document',type=['pdf','docx','txt'],key='cloudfile'); q=st.text_input('Question',key='cloudq'); k=st.slider('Retrieved chunks',1,5,3,key='cloudk')
-    if up and q and st.button('Run Cloud RAG',type='primary'):
-        if not key: st.warning(f'Enter {keyname} or put it in Streamlit Secrets.')
-        else:
-            with st.spinner('Extracting and retrieving evidence…'): text=extract_text(up); rr=tfidf(q,chunks(text),k); ctx='\n\n'.join(x[2] for x in rr)
-            try:
-                with st.spinner(f'Generating with {provider}…'): ans=cloud(provider,grounded_prompt(ctx,q),key,model)
-                st.markdown('### Cloud LLM answer'); st.success(ans)
-                with st.expander('Evidence supplied to the LLM'):
-                    for _,s,cx in rr: st.write(f'**Similarity {s:.3f}**\n\n{cx}')
-            except Exception as e: st.error(f'Cloud request failed: {e}')
+elif page == "🧠 BERT Explorer":
+    st.subheader("🧠 BERT Model Explorer")
+    st.info("Base BERT is an encoder. For a specific task, select a compatible fine-tuned checkpoint.")
+    task=st.selectbox("Task",["Masked Language Modeling","Sentiment Classification","Feature Extraction"])
+    if task=="Masked Language Modeling":
+        mid=st.text_input("Model","google-bert/bert-base-uncased")
+        txt=st.text_input("Input","National Forensic Sciences University is located in [MASK].")
+        t="fill-mask"
+    elif task=="Sentiment Classification":
+        mid=st.text_input("Model","distilbert/distilbert-base-uncased-finetuned-sst-2-english")
+        txt=st.text_input("Input","The forensic analysis was accurate and well documented.")
+        t="text-classification"
+    else:
+        mid=st.text_input("Model","google-bert/bert-base-uncased")
+        txt=st.text_input("Input","Digital forensic evidence must be handled carefully.")
+        t="feature-extraction"
+    if st.button("🚀 Run BERT demonstration",type="primary",use_container_width=True):
+        try:
+            r=progress_run(t,mid,txt,top_k=5 if t=="fill-mask" else None)
+            st.json(r if t!="feature-extraction" else {"tokens":len(r[0]),"embedding_dimension":len(r[0][0])})
+        except Exception as e: st.error(str(e))
 
-elif page==7:
-    st.subheader('🧩 NER Laboratory'); model=st.selectbox('NER model',['dslim/bert-base-NER','elastic/distilbert-base-uncased-finetuned-conll03-english','Jean-Baptiste/roberta-large-ner-english']); text=st.text_area('Text','Dr. Ranjit visited NFSU Goa Campus in Ponda on 12 September 2026.',height=150)
-    if st.button('Run NER',type='primary'):
-        with st.spinner('Loading NER model…'): p=ner_model(model)
-        with st.spinner('Detecting entities…'): es=p(text)
-        st.dataframe([{'Entity':e['word'],'Label':e['entity_group'],'Score':round(e['score'],3)} for e in es],use_container_width=True) if es else st.info('No entities detected.')
+elif page == "🤖 Local LLM":
+    st.subheader("🤖 Local LLM — project-folder model")
+    if not LOCAL_MODEL.exists():
+        st.warning("Qwen2.5-0.5B-Instruct is not installed in the project yet.")
+        st.code("python scripts/download_local_llm.py")
+        if st.button("⬇️ Download model now"):
+            st.info("Run the downloader from the project environment. The model will be saved under local_models/Qwen2.5-0.5B-Instruct.")
+    else:
+        st.success(f"Local model found: `{LOCAL_MODEL}`")
+    context=st.text_area("Context",DEMO_CONTEXT,height=180)
+    q=st.text_input("Question",DEMO_Q)
+    if st.button("▶ Ask local LLM",type="primary",use_container_width=True):
+        try:
+            with st.spinner("Loading local model from project folder…"):
+                answer=local_generate(q,context)
+            st.markdown("### Answer")
+            st.success(answer)
+        except Exception as e:
+            st.error("Local LLM could not be loaded.")
+            st.code(str(e))
 
-else:
-    st.subheader('⚙️ Settings & Performance')
-    st.markdown('''### Fast-loading strategy\n- **Lazy loading:** models load only when a module uses them.\n- **Caching:** loaded models are reused with `st.cache_resource`.\n- **Fast RAG:** TF-IDF avoids downloading an embedding model.\n- **Semantic RAG:** MiniLM loads only when selected.\n- **Chunking:** large documents are processed in pieces.\n- **Progress UI:** extraction, retrieval and generation show spinners/progress.\n\n### Architecture\n`Document → chunks → retrieval → evidence → Local/Cloud LLM → grounded answer`\n\nFor Streamlit Cloud, start with Dashboard, Learning, Comparison and Fast RAG. Heavy models download only when students explicitly select them.''')
+elif page == "🔬 Compare Models":
+    st.subheader("🔬 Compare BERT NER models")
+    txt=st.text_area("Same test input for every model",DEMO_NER,height=160)
+    selected=st.multiselect("Models",list(NER_MODELS),default=["BERT NER — dslim","DistilBERT NER"])
+    if st.button("▶ Compare",type="primary",use_container_width=True):
+        cols=st.columns(max(1,len(selected)))
+        bar=st.progress(0,"Starting comparison…")
+        for i,label in enumerate(selected):
+            with cols[i]:
+                st.markdown(f"### {label}")
+                try:
+                    r=progress_run("ner",NER_MODELS[label],txt)
+                    st.dataframe(rows(r),use_container_width=True,hide_index=True)
+                except Exception as e: st.error(str(e)[:400])
+            bar.progress(int((i+1)/len(selected)*100),f"Completed {i+1}/{len(selected)}")
+        bar.empty()
+
+elif page == "⚙️ Model Setup":
+    st.subheader("⚙️ Local model setup")
+    st.markdown("""
+    ### Bundled local model
+
+    **Qwen2.5-0.5B-Instruct**
+
+    The project is configured to place the model here:
+
+    `local_models/Qwen2.5-0.5B-Instruct`
+
+    The application then loads it with `local_files_only=True`, so the Local LLM
+    module does not need to contact the Hugging Face Hub once the model is installed.
+
+    ### Why this model?
+
+    It is a compact instruction-tuned causal language model suitable for demonstrating
+    local generation. It is intentionally small enough to be more practical for a
+    teaching project than a multi-billion-parameter model.
+
+    ### Setup
+
+    Run:
+
+    `python scripts/download_local_llm.py`
+
+    Then start:
+
+    `streamlit run app.py`
+
+    ### Model lifecycle
+
+    Hugging Face Hub → project `local_models/` → local tokenizer/model → generation
+    """)
