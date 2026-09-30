@@ -1,0 +1,73 @@
+{
+  "ner": [
+    {
+      "name": "BERT NER",
+      "id": "dslim/bert-base-NER",
+      "task": "ner",
+      "size": "compact",
+      "reference": "https://huggingface.co/dslim/bert-base-NER"
+    },
+    {
+      "name": "DistilBERT NER",
+      "id": "elastic/distilbert-base-uncased-finetuned-conll03-english",
+      "task": "ner",
+      "size": "compact",
+      "reference": "https://huggingface.co/elastic/distilbert-base-uncased-finetuned-conll03-english"
+    },
+    {
+      "name": "RoBERTa NER",
+      "id": "Jean-Baptiste/roberta-large-ner-english",
+      "task": "ner",
+      "size": "large",
+      "reference": "https://huggingface.co/Jean-Baptiste/roberta-large-ner-english"
+    },
+    {
+      "name": "XLM-R NER",
+      "id": "Davlan/xlm-roberta-base-ner-hrl",
+      "task": "ner",
+      "size": "base",
+      "reference": "https://huggingface.co/Davlan/xlm-roberta-base-ner-hrl"
+    }
+  ],
+  "encoders": [
+    {
+      "name": "BERT base uncased",
+      "id": "google-bert/bert-base-uncased",
+      "task": "fill-mask",
+      "reference": "https://huggingface.co/google-bert/bert-base-uncased"
+    },
+    {
+      "name": "BERT base cased",
+      "id": "google-bert/bert-base-cased",
+      "task": "fill-mask",
+      "reference": "https://huggingface.co/google-bert/bert-base-cased"
+    },
+    {
+      "name": "DistilBERT",
+      "id": "distilbert/distilbert-base-uncased",
+      "task": "fill-mask",
+      "reference": "https://huggingface.co/distilbert/distilbert-base-uncased"
+    },
+    {
+      "name": "RoBERTa",
+      "id": "FacebookAI/roberta-base",
+      "task": "fill-mask",
+      "reference": "https://huggingface.co/FacebookAI/roberta-base"
+    },
+    {
+      "name": "ALBERT",
+      "id": "albert/albert-base-v2",
+      "task": "fill-mask",
+      "reference": "https://huggingface.co/albert/albert-base-v2"
+    }
+  ],
+  "local_llm": [
+    {
+      "name": "Qwen2.5-0.5B-Instruct",
+      "id": "Qwen/Qwen2.5-0.5B-Instruct",
+      "task": "text-generation",
+      "reference": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct",
+      "license": "Apache-2.0"
+    }
+  ]
+}

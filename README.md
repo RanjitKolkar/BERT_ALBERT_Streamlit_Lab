@@ -1,75 +1,87 @@
-# Hugging Face BERT, NER & Local LLM Teaching Lab v2
+# Hugging Face BERT, NER & Local LLM Teaching Lab v3
 
-## What changed
+## Zero-command classroom experience
 
-This version expands the learning material substantially and adds a **project-folder local LLM**.
+The intended user workflow is simply:
 
-### Learning module
-
-15 detailed lessons cover:
-
-1. Transformers
-2. BERT
-3. Encoder vs Decoder
-4. Tokenization
-5. Self-Attention
-6. Pretraining and Fine-Tuning
-7. NER
-8. BERT NER internals
-9. Base vs task-specific models
-10. Hugging Face Hub/model loading
-11. Confidence scores
-12. Local LLMs
-13. RAG + Local LLM
-14. BERT QA vs RAG
-15. Model selection/trade-offs
-
-## Local LLM
-
-Model:
-
-`Qwen/Qwen2.5-0.5B-Instruct`
-
-The model is downloaded into:
-
-`local_models/Qwen2.5-0.5B-Instruct`
-
-Run:
-
-```bash
-python scripts/download_local_llm.py
+```text
+Open Streamlit app
+        ↓
+Select module
+        ↓
+Select model
+        ↓
+Enter text / use demonstration
+        ↓
+Run
 ```
 
-Then:
+Students do not need to run Python commands or download models manually.
 
-```bash
-streamlit run app.py
-```
+## Model catalogue
 
-The Streamlit application loads the model from the project folder with local-only loading.
+### NER models
 
-## Important note about the ZIP
+| Display name | Hugging Face ID | Purpose |
+|---|---|---|
+| BERT NER | `dslim/bert-base-NER` | English NER |
+| DistilBERT NER | `elastic/distilbert-base-uncased-finetuned-conll03-english` | Compact English NER |
+| RoBERTa NER | `Jean-Baptiste/roberta-large-ner-english` | English NER |
+| XLM-R NER | `Davlan/xlm-roberta-base-ner-hrl` | Multilingual NER |
 
-The model weights are not embedded in this ZIP because model weights are large and this build environment cannot directly download the Hugging Face snapshot. The supplied downloader performs the actual download into the project folder on the user's machine/server.
+### Encoder / BERT family
 
-This is also better for GitHub: **do not commit large model weights to GitHub**. Keep the model folder out of version control and run the downloader during setup/deployment.
+| Display name | Hugging Face ID | Demonstration |
+|---|---|---|
+| BERT base uncased | `google-bert/bert-base-uncased` | Masked language modeling |
+| BERT base cased | `google-bert/bert-base-cased` | Masked language modeling |
+| DistilBERT | `distilbert/distilbert-base-uncased` | Encoder demonstration |
+| RoBERTa | `FacebookAI/roberta-base` | Encoder demonstration |
+| ALBERT | `albert/albert-base-v2` | Encoder demonstration |
 
-## Hugging Face model loading
+### Local generative model
 
-Transformers supports downloading pretrained models from the Hub and loading from a local directory. Local/offline loading can use `local_files_only=True` after the files are available locally.
+| Display name | Hugging Face ID | Purpose |
+|---|---|---|
+| Qwen2.5 0.5B Instruct | `Qwen/Qwen2.5-0.5B-Instruct` | Local text generation / document QA |
 
-## Demonstration input
+Qwen2.5-0.5B-Instruct is an Apache-2.0 licensed 0.49B-parameter causal language model. Its official model card documents Transformers and local-app usage. See the reference link in the application.
 
-Dr. Ranjit Kolkar visited National Forensic Sciences University in Goa on 12 September 2026 for a Digital Forensics workshop. The team later travelled to New Delhi to meet officials from the Ministry of Home Affairs.
+## Important deployment note
 
-## Classroom workflow
+Model weights are large binary artifacts and should normally be stored with Git LFS, an object store, or a deployment artifact rather than ordinary Git blobs.
 
-Use the same text with:
+This repository therefore contains:
+- the application
+- model catalogue
+- model reference information
+- automatic model preparation logic
+- local-model directory structure
 
-BERT → tokenizer → contextual representation → NER classifier → entities
+If model files are already present in `local_models/`, the application uses them locally.
 
-Then:
+If they are absent, the application can prepare the configured models automatically from the Hugging Face Hub. This means the student does not need to execute a separate command.
 
-Question → retrieved context → Qwen local LLM → generated answer
+For a truly offline deployment, populate `local_models/` with the model snapshots before deployment and enable offline mode.
 
-This lets students compare **classification/extraction models** with **generative models**.
+## Example-driven learning
+
+The Learning module uses practical examples:
+
+- NER: identifying a person, university, location and date in a forensic-training sentence.
+- Tokenization: showing how one sentence becomes tokens.
+- Attention: explaining how “Goa” relates to “visited”.
+- Fine-tuning: comparing base BERT with BERT-NER.
+- Local LLM: asking a question about a short forensic-report context.
+- RAG: retrieving evidence before asking the local LLM to generate an answer.
+
+## References
+
+Hugging Face Transformers pipeline:
+https://huggingface.co/docs/transformers/pipeline_tutorial
+
+Hugging Face model loading:
+https://huggingface.co/docs/transformers/main/models
+
+Qwen2.5-0.5B-Instruct:
+https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct

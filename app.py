@@ -2,12 +2,14 @@
 import os, sys, time
 from pathlib import Path
 import streamlit as st
+import json
+from model_manager import CATALOGUE, ensure_model, local_path, is_ready
 
 st.set_page_config(page_title="Hugging Face BERT, NER & Local LLM Lab",
                    page_icon="🤗", layout="wide", initial_sidebar_state="expanded")
 
 ROOT = Path(__file__).resolve().parent
-LOCAL_MODEL = ROOT / "local_models" / "Qwen2.5-0.5B-Instruct"
+LOCAL_MODEL = local_path("Qwen/Qwen2.5-0.5B-Instruct")
 
 st.markdown("""
 <style>
@@ -43,10 +45,26 @@ BERT_MODELS = {
     "ALBERT": "albert/albert-base-v2",
 }
 
+
+def prepare_selected_model(model_id, progress=None):
+    """Use an existing project model; otherwise automatically download it."""
+    if is_ready(model_id):
+        if progress:
+            progress.progress(45, "Using model already stored in project…")
+        return local_path(model_id)
+    if progress:
+        progress.progress(20, "Preparing model from Hugging Face Hub…")
+    p = ensure_model(model_id)
+    if progress:
+        progress.progress(55, "Model is ready locally…")
+    return p
+
 @st.cache_resource(show_spinner=False)
 def load_pipe(task, model_id, aggregation=True):
     from transformers import pipeline
-    kw = dict(task=task, model=model_id, tokenizer=model_id, device=-1)
+    local = local_path(model_id)
+    model_source = str(local) if is_ready(model_id) else model_id
+    kw = dict(task=task, model=model_source, tokenizer=model_source, device=-1)
     if task in ("ner","token-classification") and aggregation:
         kw["aggregation_strategy"] = "simple"
     return pipeline(**kw)
@@ -78,10 +96,11 @@ def local_generate(question, context, max_new_tokens=220):
     return tok.decode(new, skip_special_tokens=True)
 
 def progress_run(task, model_id, text, **kwargs):
-    p = st.progress(0, "Connecting to Hugging Face…")
-    p.progress(20, "Loading / downloading model…")
+    p = st.progress(0, "Checking local model library…")
+    prepare_selected_model(model_id, p)
+    p.progress(65, "Loading model into memory…")
     pipe = load_pipe(task, model_id)
-    p.progress(70, "Running inference…")
+    p.progress(80, "Running inference…")
     result = pipe(text, **kwargs)
     p.progress(100, "Complete")
     time.sleep(.1)
@@ -97,7 +116,7 @@ st.sidebar.title("🤗 HF AI Teaching Lab")
 st.sidebar.caption("BERT • NER • Local LLM")
 page = st.sidebar.radio("Modules",[
     "🏠 Dashboard","📚 Learning","🧩 NER Explorer","🧠 BERT Explorer",
-    "🤖 Local LLM","🔬 Compare Models","⚙️ Model Setup"
+    "🤖 Local LLM","🔬 Compare Models","⚙️ Model Library"
 ])
 st.sidebar.divider()
 st.sidebar.caption("Task-specific models are downloaded only when used.")
@@ -404,13 +423,10 @@ elif page == "🧠 BERT Explorer":
 
 elif page == "🤖 Local LLM":
     st.subheader("🤖 Local LLM — project-folder model")
-    if not LOCAL_MODEL.exists():
-        st.warning("Qwen2.5-0.5B-Instruct is not installed in the project yet.")
-        st.code("python scripts/download_local_llm.py")
-        if st.button("⬇️ Download model now"):
-            st.info("Run the downloader from the project environment. The model will be saved under local_models/Qwen2.5-0.5B-Instruct.")
+    if not LOCAL_MODEL.exists() or not any(LOCAL_MODEL.iterdir()):
+        st.info("The local model is not yet stored in this project. The app will prepare it automatically when you run the Local LLM for the first time.")
     else:
-        st.success(f"Local model found: `{LOCAL_MODEL}`")
+        st.success(f"Local model found in project: `{LOCAL_MODEL}`")
     context=st.text_area("Context",DEMO_CONTEXT,height=180)
     q=st.text_input("Question",DEMO_Q)
     if st.button("▶ Ask local LLM",type="primary",use_container_width=True):
@@ -440,7 +456,7 @@ elif page == "🔬 Compare Models":
             bar.progress(int((i+1)/len(selected)*100),f"Completed {i+1}/{len(selected)}")
         bar.empty()
 
-elif page == "⚙️ Model Setup":
+elif page == "⚙️ Model Library":
     st.subheader("⚙️ Local model setup")
     st.markdown("""
     ### Bundled local model
