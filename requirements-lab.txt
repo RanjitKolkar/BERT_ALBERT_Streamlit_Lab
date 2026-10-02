@@ -1,0 +1,8 @@
+﻿# Local teaching lab extras (app1.py) — install on top of requirements.txt when needed:
+#   pip install -r requirements-lab.txt
+transformers>=4.45,<5
+torch>=2.2,<3
+huggingface_hub>=0.25
+safetensors>=0.4
+sentencepiece>=0.2
+accelerate>=0.30

@@ -3,6 +3,8 @@ Document Context Chatbot
 ------------------------
 Answers English questions using ONLY the content of uploaded documents
 (PDF, Word, Excel, CSV, plain text).
+
+Designed for Streamlit Cloud: avoids langchain.chains and chromadb.
 """
 
 from __future__ import annotations
@@ -10,18 +12,16 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 import streamlit as st
 from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
 
 st.set_page_config(
     page_title="Document Context Chatbot",
@@ -50,7 +50,9 @@ Context:
 def init_session_state() -> None:
     defaults = {
         "messages": [],
-        "rag_chain": None,
+        "retriever": None,
+        "llm": None,
+        "prompt": None,
         "doc_names": [],
         "chunk_count": 0,
         "processed_key": None,
@@ -70,10 +72,12 @@ def load_excel_as_documents(file_path: str, source_name: str) -> List[Document]:
         if frame.empty:
             continue
 
-        # Keep tabular meaning while remaining searchable as text.
         header = " | ".join(str(col) for col in frame.columns)
         rows = [" | ".join(str(value) for value in row) for row in frame.values.tolist()]
-        text = f"Spreadsheet: {source_name}\nSheet: {sheet_name}\nColumns: {header}\n" + "\n".join(rows)
+        text = (
+            f"Spreadsheet: {source_name}\nSheet: {sheet_name}\nColumns: {header}\n"
+            + "\n".join(rows)
+        )
         documents.append(
             Document(
                 page_content=text,
@@ -125,7 +129,23 @@ def load_uploaded_file(uploaded_file) -> List[Document]:
             pass
 
 
-def build_rag_chain(documents: List[Document], api_key: str):
+def format_docs(docs: List[Document]) -> str:
+    parts = []
+    for i, doc in enumerate(docs, start=1):
+        source = doc.metadata.get("source", "unknown")
+        page = doc.metadata.get("page")
+        sheet = doc.metadata.get("sheet")
+        label = source
+        if page is not None:
+            label += f" page {int(page) + 1}"
+        if sheet:
+            label += f" sheet {sheet}"
+        parts.append(f"[Excerpt {i} | {label}]\n{doc.page_content}")
+    return "\n\n".join(parts)
+
+
+def build_rag_components(documents: List[Document], api_key: str) -> Tuple[Any, Any, Any, int]:
+    """Build retriever + prompt + LLM without langchain.chains (Cloud-safe)."""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
@@ -136,7 +156,7 @@ def build_rag_chain(documents: List[Document], api_key: str):
         raise ValueError("No readable text was found in the uploaded file(s).")
 
     embeddings = OpenAIEmbeddings(api_key=api_key)
-    vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
+    vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 
     prompt = ChatPromptTemplate.from_messages(
@@ -146,9 +166,23 @@ def build_rag_chain(documents: List[Document], api_key: str):
         ]
     )
     llm = ChatOpenAI(model="gpt-4o-mini", api_key=api_key, temperature=0)
-    question_answer_chain = create_stuff_documents_chain(llm, prompt)
-    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
-    return rag_chain, len(splits)
+    return retriever, prompt, llm, len(splits)
+
+
+def answer_question(question: str) -> Dict[str, Any]:
+    """Retrieve document chunks and generate a grounded English answer."""
+    retriever = st.session_state.retriever
+    prompt = st.session_state.prompt
+    llm = st.session_state.llm
+
+    source_docs: List[Document] = retriever.invoke(question)
+    context = format_docs(source_docs)
+    messages = prompt.format_messages(context=context, input=question)
+    response = llm.invoke(messages)
+    answer = (getattr(response, "content", None) or str(response)).strip()
+    if not answer:
+        answer = "I could not find that information in the uploaded document(s)."
+    return {"answer": answer, "context": source_docs}
 
 
 def reset_chat() -> None:
@@ -157,7 +191,9 @@ def reset_chat() -> None:
 
 def clear_knowledge_base() -> None:
     st.session_state.messages = []
-    st.session_state.rag_chain = None
+    st.session_state.retriever = None
+    st.session_state.llm = None
+    st.session_state.prompt = None
     st.session_state.doc_names = []
     st.session_state.chunk_count = 0
     st.session_state.processed_key = None
@@ -174,7 +210,17 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Configuration")
-        api_key = st.text_input("OpenAI API Key", type="password", help="Required for embeddings and answers.")
+        default_key = ""
+        try:
+            default_key = st.secrets.get("OPENAI_API_KEY", "")
+        except Exception:
+            default_key = ""
+        api_key = st.text_input(
+            "OpenAI API Key",
+            type="password",
+            help="Required for embeddings and answers. You can also set OPENAI_API_KEY in Streamlit secrets.",
+            value=default_key,
+        )
         st.markdown("---")
         st.subheader("Upload documents")
         uploaded_files = st.file_uploader(
@@ -225,8 +271,10 @@ def main() -> None:
                     if not all_docs:
                         st.error("Could not extract text from the uploaded file(s).")
                     else:
-                        chain, chunk_count = build_rag_chain(all_docs, api_key)
-                        st.session_state.rag_chain = chain
+                        retriever, prompt, llm, chunk_count = build_rag_components(all_docs, api_key)
+                        st.session_state.retriever = retriever
+                        st.session_state.prompt = prompt
+                        st.session_state.llm = llm
                         st.session_state.doc_names = names
                         st.session_state.chunk_count = chunk_count
                         st.session_state.processed_key = key
@@ -238,7 +286,7 @@ def main() -> None:
                 except Exception as exc:
                     st.error(f"Failed to process documents: {exc}")
 
-    if st.session_state.rag_chain is None:
+    if st.session_state.retriever is None:
         st.markdown(
             """
             ### How to use
@@ -271,9 +319,8 @@ def main() -> None:
     with st.chat_message("assistant"):
         with st.spinner("Searching your documents..."):
             try:
-                response = st.session_state.rag_chain.invoke({"input": user_question})
-                answer = response.get("answer", "").strip() or "I could not find that information in the uploaded document(s)."
-
+                response = answer_question(user_question)
+                answer = response["answer"]
                 source_docs = response.get("context", []) or []
                 sources = []
                 for doc in source_docs:
