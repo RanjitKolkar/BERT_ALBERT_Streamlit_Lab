@@ -25,6 +25,18 @@ from pypdf import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from runtime_memory import (
+    clear_cached_resources,
+    configure_torch_runtime,
+    free_python_and_torch,
+    memory_caption,
+    model_load_kwargs,
+)
+
+# Keep local LLM answers lighter on RAM
+MAX_LLM_CONTEXT_CHARS = 1800
+MAX_NEW_TOKENS = 120
+
 try:
     import docx2txt
 except Exception:  # pragma: no cover
@@ -283,19 +295,23 @@ def extractive_answer(question: str, hits: List[Tuple[Chunk, float]]) -> str:
     return "\n".join(lines).strip()
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(max_entries=1, show_spinner=False)
 def load_local_llm(model_dir: str):
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    import torch
 
+    configure_torch_runtime()
     tokenizer = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_dir,
         local_files_only=True,
-        torch_dtype=torch.float32,
+        **model_load_kwargs(),
     )
     model.eval()
     return tokenizer, model
+
+
+def free_chatbot_model_memory() -> str:
+    return clear_cached_resources(load_local_llm)
 
 
 def local_llm_answer(
@@ -318,7 +334,7 @@ def local_llm_answer(
     except Exception as exc:
         return None, (
             "Local Qwen needs torch + transformers. "
-            f"Run: pip install -r requirements-lab.txt. Details: {exc}"
+            f"Run: pip install -r requirements.txt. Details: {exc}"
         )
 
     try:
@@ -328,9 +344,12 @@ def local_llm_answer(
 
     import torch
 
+    # Fewer chunks + shorter context = less RAM during generate
     context = "\n\n".join(
-        f"Source: {label_chunk(chunk)}\n{chunk.text}" for chunk, _ in hits[:4]
+        f"Source: {label_chunk(chunk)}\n{chunk.text}" for chunk, _ in hits[:3]
     )
+    if len(context) > MAX_LLM_CONTEXT_CHARS:
+        context = context[:MAX_LLM_CONTEXT_CHARS] + "\n…[truncated to save memory]"
     messages = [
         {
             "role": "system",
@@ -350,17 +369,20 @@ def local_llm_answer(
             messages, tokenize=False, add_generation_prompt=True
         )
         inputs = tokenizer([prompt], return_tensors="pt")
-        with torch.no_grad():
+        with torch.inference_mode():
             output = model.generate(
                 **inputs,
-                max_new_tokens=220,
+                max_new_tokens=MAX_NEW_TOKENS,
                 do_sample=False,
                 pad_token_id=tokenizer.eos_token_id,
             )
         new_tokens = output[0][inputs["input_ids"].shape[-1] :]
         text = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        del inputs, output, new_tokens
+        free_python_and_torch()
         return (text or NO_ANSWER), None
     except Exception as exc:
+        free_python_and_torch()
         return None, f"Local Qwen generation failed: {exc}"
 
 
@@ -443,24 +465,36 @@ Full model list + how-to: see `USER_GUIDE.md` and `INSTALL.md` in the project fo
         st.success("API key: not required")
         st.caption("Guides: USER_GUIDE.md · INSTALL.md")
 
-        default_mode = "local_llm" if local_ready else "extractive"
+        # Default Extractive = lowest memory (no neural net loaded)
         mode_options = {
-            "Extractive (works everywhere, no model download)": "extractive",
-            "Local Qwen LLM (uses preloaded local_models)": "local_llm",
+            "Extractive (low memory, no neural net)": "extractive",
+            "Local Qwen LLM (uses more RAM)": "local_llm",
         }
         labels = list(mode_options.keys())
-        default_label = labels[1] if default_mode == "local_llm" else labels[0]
+        # Prefer last user choice; otherwise start extractive to save RAM
+        current = st.session_state.get("answer_mode", "extractive")
+        default_label = labels[0] if current != "local_llm" else labels[1]
         chosen = st.radio(
             "Answer mode",
             labels,
             index=labels.index(default_label),
-            help="Extractive mode always works. Local LLM needs Qwen in local_models/.",
+            help=(
+                "Extractive uses almost no model RAM. "
+                "Local Qwen loads ~0.5B weights into memory."
+            ),
         )
         st.session_state.answer_mode = mode_options[chosen]
+        st.caption(memory_caption())
+        if st.button("Free model memory", use_container_width=True, key="chat_free_mem"):
+            st.success(free_chatbot_model_memory())
 
         if st.session_state.answer_mode == "local_llm":
             if local_ready:
                 st.info(f"Local Qwen ready:\n{qwen_dir}")
+                st.caption(
+                    "Tip: switch back to Extractive and click Free model memory "
+                    "when you finish generative answers."
+                )
             else:
                 st.warning("Local Qwen was not detected in this app folder.")
                 st.code(str(MODEL_ROOT / LOCAL_LLM_DIRNAMES[0]), language="text")
@@ -609,7 +643,9 @@ Full model list + how-to: see `USER_GUIDE.md` and `INSTALL.md` in the project fo
 
 
 def main() -> None:
+    configure_torch_runtime()
     st.sidebar.title("AI Lab")
+    st.sidebar.caption("Memory-aware: one model at a time · Extractive = lightest")
     app_mode = st.sidebar.radio(
         "Application",
         [

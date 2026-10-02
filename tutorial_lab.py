@@ -20,6 +20,19 @@ from typing import Any, Dict, List
 
 import streamlit as st
 
+from runtime_memory import (
+    clear_cached_resources,
+    configure_torch_runtime,
+    free_python_and_torch,
+    memory_caption,
+    model_load_kwargs,
+)
+
+# Keep tutorial demos lighter on RAM
+MAX_NER_CHARS = 2500
+MAX_LLM_CONTEXT_CHARS = 1800
+MAX_NEW_TOKENS = 120
+
 try:
     from model_manager import (
         CATALOGUE,
@@ -229,35 +242,55 @@ def prepare_selected_model(model_id: str, progress=None):
     return path
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(max_entries=1, show_spinner=False)
 def load_pipe(task: str, model_id: str, aggregation: bool = True):
+    """Cache at most ONE pipeline so switching models drops the previous weights."""
     from transformers import pipeline
 
+    configure_torch_runtime()
     local = local_path(model_id)
     model_source = str(local) if is_ready(model_id) else model_id
     kw: Dict[str, Any] = dict(
-        task=task, model=model_source, tokenizer=model_source, device=-1
+        task=task,
+        model=model_source,
+        tokenizer=model_source,
+        device=-1,
+        model_kwargs=model_load_kwargs(),
     )
     if task in ("ner", "token-classification") and aggregation:
         kw["aggregation_strategy"] = "simple"
     return pipeline(**kw)
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(max_entries=1, show_spinner=False)
 def load_local_llm(model_dir: str):
+    """Cache at most ONE local LLM copy."""
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    import torch
 
+    configure_torch_runtime()
     tok = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(
-        model_dir, local_files_only=True, torch_dtype=torch.float32
+        model_dir,
+        local_files_only=True,
+        **model_load_kwargs(),
     )
     model.eval()
     return tok, model
 
 
-def local_generate(question: str, context: str, max_new_tokens: int = 220) -> str:
+def free_lab_model_memory() -> str:
+    return clear_cached_resources(load_pipe, load_local_llm)
+
+
+def local_generate(question: str, context: str, max_new_tokens: int = MAX_NEW_TOKENS) -> str:
     import torch
+
+    # Drop encoder/NER pipeline before loading Qwen (one heavy model at a time)
+    try:
+        load_pipe.clear()
+    except Exception:
+        pass
+    free_python_and_torch()
 
     model_dir = local_path(LOCAL_LLM_ID)
     if not is_ready(LOCAL_LLM_ID):
@@ -266,8 +299,8 @@ def local_generate(question: str, context: str, max_new_tokens: int = 220) -> st
         )
     tok, model = load_local_llm(str(model_dir))
     ctx = context.strip()
-    if len(ctx) > 3500:
-        ctx = ctx[:3500] + "\n…[truncated for local model context window]"
+    if len(ctx) > MAX_LLM_CONTEXT_CHARS:
+        ctx = ctx[:MAX_LLM_CONTEXT_CHARS] + "\n…[truncated to save memory]"
     messages = [
         {
             "role": "system",
@@ -281,7 +314,7 @@ def local_generate(question: str, context: str, max_new_tokens: int = 220) -> st
     ]
     text = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = tok([text], return_tensors="pt")
-    with torch.no_grad():
+    with torch.inference_mode():
         out = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
@@ -289,20 +322,40 @@ def local_generate(question: str, context: str, max_new_tokens: int = 220) -> st
             pad_token_id=tok.eos_token_id,
         )
     new = out[0][inputs.input_ids.shape[-1] :]
-    return tok.decode(new, skip_special_tokens=True).strip()
+    answer = tok.decode(new, skip_special_tokens=True).strip()
+    # Free generation tensors promptly
+    del inputs, out, new
+    free_python_and_torch()
+    return answer
 
 
-def progress_run(task: str, model_id: str, text: str, **kwargs):
+def progress_run(task: str, model_id: str, text: str, unload_after: bool = False, **kwargs):
     p = st.progress(0, "Checking local model library…")
     prepare_selected_model(model_id, p)
-    p.progress(65, "Loading model into memory…")
+    p.progress(65, "Loading model into memory (replaces previous model)…")
     clean = {k: v for k, v in kwargs.items() if v is not None}
+    # Unload LLM before encoder/NER so RAM is not stacked
+    try:
+        load_local_llm.clear()
+    except Exception:
+        pass
+    free_python_and_torch()
     pipe = load_pipe(task, model_id)
     p.progress(80, "Running inference…")
-    result = pipe(text, **clean)
+    # Bound NER input length
+    run_text = text
+    if task == "ner" and len(run_text) > MAX_NER_CHARS:
+        run_text = run_text[:MAX_NER_CHARS]
+    result = pipe(run_text, **clean)
     p.progress(100, "Complete")
     time.sleep(0.05)
     p.empty()
+    if unload_after:
+        try:
+            load_pipe.clear()
+        except Exception:
+            pass
+        free_python_and_torch()
     return result
 
 
@@ -615,10 +668,15 @@ def render_compare_ner() -> None:
     )
     st.session_state.lab_ner_text = txt
 
+    st.info(
+        "Memory-safe compare: models run **one after another**. "
+        "Only one stays loaded. Prefer 2 models if RAM is tight. "
+        "RoBERTa-large NER uses the most memory."
+    )
     selected = st.multiselect(
         "Models",
         list(NER_MODELS.keys()),
-        default=["BERT NER", "DistilBERT NER", "RoBERTa NER"],
+        default=["BERT NER", "DistilBERT NER"],
     )
     if st.button("Compare NER models", type="primary", use_container_width=True):
         if not selected:
@@ -628,12 +686,18 @@ def render_compare_ner() -> None:
             st.warning("Enter text first.")
             return
         cols = st.columns(max(1, len(selected)))
-        bar = st.progress(0, "Starting comparison…")
+        bar = st.progress(0, "Starting comparison (one model at a time)…")
         for i, name in enumerate(selected):
             with cols[i]:
                 st.markdown(f"### {name}")
                 try:
-                    result = progress_run("ner", NER_MODELS[name], txt)
+                    # unload_after=True frees weights before the next model
+                    result = progress_run(
+                        "ner",
+                        NER_MODELS[name],
+                        txt,
+                        unload_after=True,
+                    )
                     st.dataframe(
                         entity_rows(result), use_container_width=True, hide_index=True
                     )
@@ -641,6 +705,7 @@ def render_compare_ner() -> None:
                     st.error(str(exc)[:400])
             bar.progress(int((i + 1) / len(selected) * 100))
         bar.empty()
+        st.caption(free_lab_model_memory())
 
 
 def render_local_llm_demo() -> None:
@@ -711,15 +776,24 @@ def render_local_llm_demo() -> None:
 
 def render_tutorial_lab() -> None:
     init_lab_state()
+    configure_torch_runtime()
     st.title("Tutorial Lab — paper workflow")
     st.caption(
         "Ordered for teaching/paper demos: shared forensic **text** first (paste or upload), "
         "then encoders → NER → compare → local LLM on the **same** context. No API key."
     )
+    st.caption(memory_caption())
+    if st.sidebar.button("Free model memory", use_container_width=True, key="lab_free_mem"):
+        msg = free_lab_model_memory()
+        st.sidebar.success(msg)
+    st.sidebar.caption(
+        "Loads **one model at a time**. Free memory after heavy demos. "
+        "Extractive chatbot uses almost no model RAM."
+    )
     if _IMPORT_ERROR:
         st.warning(f"Model manager issue: {_IMPORT_ERROR}")
 
-    with st.expander("Recommended order for the paper", expanded=True):
+    with st.expander("Recommended order for the paper", expanded=False):
         st.markdown(
             """
 1. **Shared document text** — paste content (default) or upload PDF/Word/Excel/TXT
