@@ -49,6 +49,17 @@ Use **RAG**: retrieve the best document chunks first, then answer **only** from 
 
 Details: [USER_GUIDE.md — Best way to solve context-based chatbot](USER_GUIDE.md#4-best-way-to-solve-a-context-based-chatbot-problem).
 
+### Tutorial Lab — paper workflow order
+
+1. **Shared document text** (default = pasteable forensic page; optional PDF/Word upload)  
+2. **Model library**  
+3. **Encoder demos** (BERT / ALBERT family)  
+4. **NER explorer**  
+5. **Compare NER**  
+6. **Local LLM Q&A** on the same shared text  
+
+All tutorial models reuse one shared text context (no personal names in the default sample).
+
 ## Zero-command classroom experience (after setup)
 
 The intended user workflow is simply:

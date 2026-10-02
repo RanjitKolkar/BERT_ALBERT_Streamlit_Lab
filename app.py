@@ -614,7 +614,7 @@ def main() -> None:
         "Application",
         [
             "Document Context Chatbot",
-            "Tutorial Lab (BERT / NER / ALBERT / Qwen)",
+            "Tutorial Lab (paper workflow)",
         ],
         key="app_mode",
     )

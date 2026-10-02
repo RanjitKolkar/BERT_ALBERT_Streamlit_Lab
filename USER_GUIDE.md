@@ -133,38 +133,35 @@ Install first if needed: see [INSTALL.md](INSTALL.md) (`setup.bat`).
 
 ---
 
-### 3.2 Tutorial Lab — how to use
+### 3.2 Tutorial Lab — paper workflow (how to use)
 
-Sidebar → **Tutorial Lab**, then pick a module:
+Sidebar → **Tutorial Lab**. Follow the numbered steps (same shared text for all models).
 
-#### Model Library
-- See READY / MISSING for all 10 models  
-- **Download Local LLM only** — one model (Qwen)  
-- **Preload ALL tutorial models** — full pack  
-- **Refresh status** — re-scan `local_models/`  
+**Default input = plain text** (a one-page generic digital forensics summary, no personal names).  
+You can **paste** any content, or **upload** PDF / Word / Excel / CSV / TXT to fill the shared text box.
 
-#### NER Explorer
-1. Pick a NER model  
-2. Paste English text (or use the demo sentence)  
-3. Click **Run NER**  
-4. Read entity table + labels (PER, ORG, LOC, DATE, …)  
+| Step | Module | What you do |
+|---|---|---|
+| **1** | Shared document text | Paste text (default) or upload a file → Load into shared text |
+| **2** | Model library | Confirm READY; preload if needed |
+| **3** | Encoder demos | Fill-mask on a sentence from the document (`[MASK]`) |
+| **4** | NER explorer | Entities on shared / pasted text |
+| **5** | Compare NER | Same passage, multiple NER models |
+| **6** | Local LLM Q&A | Ask questions; context = shared document by default |
 
-#### BERT / ALBERT Explorer
-1. Pick an encoder  
-2. Enter a sentence with `[MASK]`  
-   - Example: `National Forensic Sciences University is located in [MASK].`  
-3. Click **Run fill-mask**  
-4. For RoBERTa-like models, the app may retry with `<mask>`  
+#### Step 1 tips
+- Prefer **Paste / edit text** for classroom demos  
+- **Upload file → fill text box** extracts text from PDF/Word/etc. into the same editor  
+- **Reset to sample forensic page** restores the built-in one-page case summary  
 
-#### Local LLM (Qwen) demo
-1. Confirm Qwen is READY (or download)  
-2. Edit **Context** and **Question**  
-3. Click **Ask local LLM**  
+#### Steps 3–6
+- Each step can **preview** the shared document  
+- NER/Compare: buttons to load full shared text or a short forensic snippet  
+- Local LLM: checkbox **Use full shared document as context** (on by default)  
 
-#### Compare NER
-1. Enter the same text  
-2. Select 2+ NER models  
-3. Compare labels side by side  
+#### Encoder note
+- Example mask sentence: `A bit-for-bit forensic image was created using a write [MASK].`  
+- RoBERTa-style models may auto-retry with `<mask>`  
 
 ---
 
