@@ -1,4 +1,4 @@
-streamlit>=1.40,<2
+﻿streamlit>=1.40,<2
 transformers>=4.45,<5
 torch>=2.2,<3
 huggingface_hub>=0.25
@@ -7,8 +7,13 @@ sentencepiece>=0.2
 accelerate>=0.30
 pypdf
 docx2txt
+pandas>=2.0
+openpyxl>=3.1
+xlrd>=2.0
 langchain
 langchain-community
+langchain-core
+langchain-text-splitters
 langchain-openai
 chromadb
 tiktoken

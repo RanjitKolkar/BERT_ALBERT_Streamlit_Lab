@@ -3,7 +3,15 @@ import os, sys, time
 from pathlib import Path
 import streamlit as st
 import json
-from model_manager import CATALOGUE, ensure_model, local_path, is_ready
+from model_manager import (
+    CATALOGUE,
+    ensure_model,
+    ensure_all_models,
+    local_path,
+    is_ready,
+    status_report,
+    all_models,
+)
 
 st.set_page_config(page_title="Hugging Face BERT, NER & Local LLM Lab",
                    page_icon="🤗", layout="wide", initial_sidebar_state="expanded")
@@ -119,7 +127,7 @@ page = st.sidebar.radio("Modules",[
     "🤖 Local LLM","🔬 Compare Models","⚙️ Model Library"
 ])
 st.sidebar.divider()
-st.sidebar.caption("Task-specific models are downloaded only when used.")
+st.sidebar.caption("All catalogue models can be preloaded into local_models/.")
 
 st.title("Hugging Face BERT, NER & Local LLM Teaching Lab")
 st.caption("A classroom application for understanding how pretrained and fine-tuned Transformer models are selected, downloaded and used.")
@@ -457,36 +465,70 @@ elif page == "🔬 Compare Models":
         bar.empty()
 
 elif page == "⚙️ Model Library":
-    st.subheader("⚙️ Local model setup")
+    st.subheader("⚙️ Local model library")
     st.markdown("""
-    ### Bundled local model
+    This project is designed so **all catalogue models are preloaded** into
+    `local_models/`. Once ready, modules can run from local files without
+    re-downloading each time.
 
-    **Qwen2.5-0.5B-Instruct**
+    ### One-command preload
 
-    The project is configured to place the model here:
+    ```bash
+    python scripts/preload_all_models.py
+    ```
 
-    `local_models/Qwen2.5-0.5B-Instruct`
-
-    The application then loads it with `local_files_only=True`, so the Local LLM
-    module does not need to contact the Hugging Face Hub once the model is installed.
-
-    ### Why this model?
-
-    It is a compact instruction-tuned causal language model suitable for demonstrating
-    local generation. It is intentionally small enough to be more practical for a
-    teaching project than a multi-billion-parameter model.
-
-    ### Setup
-
-    Run:
-
-    `python scripts/download_local_llm.py`
-
-    Then start:
-
-    `streamlit run app.py`
+    This downloads every model listed in `models.json`:
+    - NER models
+    - BERT / DistilBERT / RoBERTa / ALBERT encoders
+    - Local LLM (Qwen2.5-0.5B-Instruct)
 
     ### Model lifecycle
 
-    Hugging Face Hub → project `local_models/` → local tokenizer/model → generation
+    Hugging Face Hub → project `local_models/` → local tokenizer/model → inference
     """)
+
+    report = status_report()
+    ready_count = sum(1 for row in report if row["ready"])
+    st.metric("Models ready locally", f"{ready_count}/{len(report)}")
+    st.dataframe(
+        [
+            {
+                "Name": row["name"],
+                "Model ID": row["id"],
+                "Status": "READY" if row["ready"] else "MISSING",
+                "Local path": row["path"],
+            }
+            for row in report
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    if st.button("⬇ Preload ALL catalogue models", type="primary", use_container_width=True):
+        progress = st.progress(0, "Starting full model preload…")
+        status_box = st.empty()
+        models = all_models()
+        total = max(len(models), 1)
+        done = {"n": 0}
+
+        def cb(message: str):
+            status_box.write(message)
+            # advance roughly when a model finishes or is already ready
+            if message.startswith("Ready:") or message.startswith("Already ready:") or message.startswith("FAILED:"):
+                done["n"] += 1
+                progress.progress(min(done["n"] / total, 1.0), message)
+
+        try:
+            results = ensure_all_models(progress_callback=cb)
+            progress.progress(1.0, "Preload finished")
+            ok = sum(1 for r in results if r["ok"])
+            failed = [r for r in results if not r["ok"]]
+            if failed:
+                st.warning(f"Completed with issues: {ok}/{len(results)} succeeded.")
+                for item in failed:
+                    st.error(f"{item['id']}: {item['error']}")
+            else:
+                st.success(f"All {ok} catalogue models are ready in local_models/.")
+            st.rerun()
+        except Exception as e:
+            st.error(str(e))

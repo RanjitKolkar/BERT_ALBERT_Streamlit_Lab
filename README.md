@@ -60,9 +60,17 @@ This repository therefore contains:
 
 If model files are already present in `local_models/`, the application uses them locally.
 
-If they are absent, the application can prepare the configured models automatically from the Hugging Face Hub. This means the student does not need to execute a separate command.
+### Preload all models
 
-For a truly offline deployment, populate `local_models/` with the model snapshots before deployment and enable offline mode.
+To prepare the full classroom bundle offline, download every model from `models.json`:
+
+```bash
+python scripts/preload_all_models.py
+```
+
+This stores all NER, encoder, and local-LLM checkpoints under `local_models/`.
+
+If a model is still absent at runtime, the application can prepare it automatically from the Hugging Face Hub. For a truly offline deployment, run the preload script first.
 
 ## Example-driven learning
 
