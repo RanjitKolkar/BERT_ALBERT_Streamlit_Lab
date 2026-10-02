@@ -30,14 +30,67 @@ try:
 except Exception:  # pragma: no cover
     docx2txt = None
 
-try:
-    from model_manager import is_ready, local_path
-except Exception:  # pragma: no cover - Cloud can still run extractive mode
-    def is_ready(model_id: str) -> bool:
-        return False
+APP_ROOT = Path(__file__).resolve().parent
+MODEL_ROOT = APP_ROOT / "local_models"
+LOCAL_LLM_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+LOCAL_LLM_DIRNAMES = [
+    "Qwen__Qwen2.5-0.5B-Instruct",
+    "Qwen2.5-0.5B-Instruct",
+    "Qwen-Qwen2.5-0.5B-Instruct",
+]
 
-    def local_path(model_id: str) -> Path:
-        return Path("local_models") / model_id.replace("/", "__")
+_MM_ERROR = None
+try:
+    from model_manager import ensure_model, is_ready as mm_is_ready, local_path as mm_local_path
+except Exception as exc:  # pragma: no cover
+    ensure_model = None
+    mm_is_ready = None
+    mm_local_path = None
+    _MM_ERROR = str(exc)
+
+
+def qwen_candidate_dirs() -> List[Path]:
+    dirs = [MODEL_ROOT / name for name in LOCAL_LLM_DIRNAMES]
+    if mm_local_path is not None:
+        try:
+            dirs.insert(0, Path(mm_local_path(LOCAL_LLM_ID)))
+        except Exception:
+            pass
+    seen = set()
+    out: List[Path] = []
+    for path in dirs:
+        key = str(path.resolve()) if path.exists() else str(path)
+        if key not in seen:
+            seen.add(key)
+            out.append(path)
+    return out
+
+
+def folder_has_llm_weights(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+    if not (path / "config.json").exists():
+        return False
+    return (
+        any(path.glob("model*.safetensors"))
+        or any(path.glob("pytorch_model*.bin"))
+        or (path / "model.safetensors.index.json").exists()
+        or (path / "pytorch_model.bin.index.json").exists()
+    )
+
+
+def resolve_qwen_dir() -> Optional[Path]:
+    for path in qwen_candidate_dirs():
+        if folder_has_llm_weights(path):
+            return path
+    if mm_is_ready is not None and mm_local_path is not None:
+        try:
+            if mm_is_ready(LOCAL_LLM_ID):
+                return Path(mm_local_path(LOCAL_LLM_ID))
+        except Exception:
+            pass
+    return None
+
 
 st.set_page_config(
     page_title="Document Context Chatbot",
@@ -46,7 +99,6 @@ st.set_page_config(
 )
 
 SUPPORTED_TYPES = ["pdf", "docx", "doc", "xlsx", "xls", "csv", "txt", "md"]
-LOCAL_LLM_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 NO_ANSWER = "I could not find that information in the uploaded document(s)."
 
 
@@ -80,8 +132,14 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def chunk_text(text: str, source: str, page: Optional[int] = None, sheet: Optional[str] = None,
-               chunk_size: int = 900, overlap: int = 150) -> List[Chunk]:
+def chunk_text(
+    text: str,
+    source: str,
+    page: Optional[int] = None,
+    sheet: Optional[str] = None,
+    chunk_size: int = 900,
+    overlap: int = 150,
+) -> List[Chunk]:
     text = clean_text(text)
     if not text:
         return []
@@ -168,7 +226,7 @@ def load_uploaded_file(uploaded_file) -> List[Chunk]:
             pass
 
 
-def build_index(chunks: List[Chunk]) -> Tuple[TfidfVectorizer, any]:
+def build_index(chunks: List[Chunk]) -> Tuple[TfidfVectorizer, object]:
     texts = [c.text for c in chunks]
     vectorizer = TfidfVectorizer(stop_words="english", max_df=0.9)
     matrix = vectorizer.fit_transform(texts)
@@ -205,7 +263,6 @@ def label_chunk(chunk: Chunk) -> str:
 def extractive_answer(question: str, hits: List[Tuple[Chunk, float]]) -> str:
     if not hits:
         return NO_ANSWER
-    # Very weak match → treat as missing
     if hits[0][1] < 0.05:
         return NO_ANSWER
 
@@ -227,14 +284,10 @@ def extractive_answer(question: str, hits: List[Tuple[Chunk, float]]) -> str:
 
 
 @st.cache_resource(show_spinner=False)
-def load_local_llm():
-    """Load preloaded Qwen model from local_models/ when available."""
-    if not is_ready(LOCAL_LLM_ID):
-        return None, None
+def load_local_llm(model_dir: str):
     from transformers import AutoModelForCausalLM, AutoTokenizer
     import torch
 
-    model_dir = str(local_path(LOCAL_LLM_ID))
     tokenizer = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_dir,
@@ -245,15 +298,33 @@ def load_local_llm():
     return tokenizer, model
 
 
-def local_llm_answer(question: str, hits: List[Tuple[Chunk, float]]) -> Optional[str]:
+def local_llm_answer(
+    question: str, hits: List[Tuple[Chunk, float]]
+) -> Tuple[Optional[str], Optional[str]]:
+    """Returns (answer, error_message)."""
     if not hits or hits[0][1] < 0.05:
-        return NO_ANSWER
+        return NO_ANSWER, None
+
+    model_dir = resolve_qwen_dir()
+    if model_dir is None:
+        return None, (
+            "Local Qwen folder not found. Expected: "
+            f"{MODEL_ROOT / LOCAL_LLM_DIRNAMES[0]}"
+        )
+
     try:
-        tokenizer, model = load_local_llm()
-    except Exception:
-        return None
-    if tokenizer is None or model is None:
-        return None
+        import torch  # noqa: F401
+        import transformers  # noqa: F401
+    except Exception as exc:
+        return None, (
+            "Local Qwen needs torch + transformers. "
+            f"Run: pip install -r requirements-lab.txt. Details: {exc}"
+        )
+
+    try:
+        tokenizer, model = load_local_llm(str(model_dir))
+    except Exception as exc:
+        return None, f"Failed to load local Qwen from {model_dir}: {exc}"
 
     import torch
 
@@ -274,18 +345,23 @@ def local_llm_answer(question: str, hits: List[Tuple[Chunk, float]]) -> Optional
             "content": f"Context:\n{context}\n\nQuestion:\n{question}",
         },
     ]
-    prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    inputs = tokenizer([prompt], return_tensors="pt")
-    with torch.no_grad():
-        output = model.generate(
-            **inputs,
-            max_new_tokens=220,
-            do_sample=False,
-            pad_token_id=tokenizer.eos_token_id,
+    try:
+        prompt = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
         )
-    new_tokens = output[0][inputs["input_ids"].shape[-1]:]
-    text = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
-    return text or NO_ANSWER
+        inputs = tokenizer([prompt], return_tensors="pt")
+        with torch.no_grad():
+            output = model.generate(
+                **inputs,
+                max_new_tokens=220,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        new_tokens = output[0][inputs["input_ids"].shape[-1] :]
+        text = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        return (text or NO_ANSWER), None
+    except Exception as exc:
+        return None, f"Local Qwen generation failed: {exc}"
 
 
 def answer_question(question: str) -> Dict[str, object]:
@@ -298,17 +374,23 @@ def answer_question(question: str) -> Dict[str, object]:
     mode = st.session_state.answer_mode
     answer = None
     used_mode = "extractive"
+    error = None
 
     if mode == "local_llm":
-        answer = local_llm_answer(question, hits)
+        answer, error = local_llm_answer(question, hits)
         if answer is not None:
             used_mode = "local_llm"
 
     if answer is None:
         answer = extractive_answer(question, hits)
         used_mode = "extractive"
+        if error and mode == "local_llm":
+            answer = (
+                f"Local Qwen unavailable ({error})\n\n"
+                f"Fell back to extractive mode:\n\n{answer}"
+            )
 
-    return {"answer": answer, "sources": sources, "mode": used_mode}
+    return {"answer": answer, "sources": sources, "mode": used_mode, "error": error}
 
 
 def reset_chat() -> None:
@@ -327,9 +409,10 @@ def clear_knowledge_base() -> None:
 def main() -> None:
     init_session_state()
 
-    local_ready = is_ready(LOCAL_LLM_ID)
+    qwen_dir = resolve_qwen_dir()
+    local_ready = qwen_dir is not None
 
-    st.title("📚 Document Context Chatbot")
+    st.title("Document Context Chatbot")
     st.caption(
         "No API key required. Upload documents and ask English questions. "
         "Answers come only from your uploaded content."
@@ -345,7 +428,7 @@ def main() -> None:
             "Local Qwen LLM (uses preloaded local_models)": "local_llm",
         }
         labels = list(mode_options.keys())
-        default_label = labels[0] if default_mode == "extractive" else labels[1]
+        default_label = labels[1] if default_mode == "local_llm" else labels[0]
         chosen = st.radio(
             "Answer mode",
             labels,
@@ -356,12 +439,32 @@ def main() -> None:
 
         if st.session_state.answer_mode == "local_llm":
             if local_ready:
-                st.info("Local Qwen model is ready.")
+                st.info(f"Local Qwen ready:\n{qwen_dir}")
             else:
-                st.warning(
-                    "Local Qwen is not in local_models/. "
-                    "Run: python scripts/preload_all_models.py — or use Extractive mode."
+                st.warning("Local Qwen was not detected in this app folder.")
+                st.code(str(MODEL_ROOT / LOCAL_LLM_DIRNAMES[0]), language="text")
+                st.caption(
+                    "On Streamlit Cloud, local_models/ is usually not deployed "
+                    "(large files are gitignored). Use Extractive mode on Cloud, "
+                    "or run this app on your PC where models were preloaded."
                 )
+                if _MM_ERROR:
+                    st.caption(f"model_manager import note: {_MM_ERROR}")
+
+                if ensure_model is not None and st.button(
+                    "Download Qwen into local_models/",
+                    use_container_width=True,
+                ):
+                    with st.spinner("Downloading Qwen2.5-0.5B-Instruct..."):
+                        try:
+                            path = ensure_model(LOCAL_LLM_ID)
+                            st.success(f"Downloaded: {path}")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Download failed: {exc}")
+
+                st.markdown("Or run in the project folder:")
+                st.code("python scripts/preload_all_models.py", language="bash")
 
         st.markdown("---")
         st.subheader("Upload documents")
@@ -370,13 +473,15 @@ def main() -> None:
             type=SUPPORTED_TYPES,
             accept_multiple_files=True,
         )
-        process_clicked = st.button("Process documents", type="primary", use_container_width=True)
+        process_clicked = st.button(
+            "Process documents", type="primary", use_container_width=True
+        )
         st.button("Clear chat", on_click=reset_chat, use_container_width=True)
         st.button("Clear documents", on_click=clear_knowledge_base, use_container_width=True)
 
         st.markdown("---")
         st.markdown("**Supported formats**")
-        st.write("`.pdf` `.docx` `.xlsx` `.xls` `.csv` `.txt` `.md`")
+        st.write(".pdf .docx .xlsx .xls .csv .txt .md")
         st.markdown("**Language**")
         st.write("Questions and answers: English")
 
@@ -384,7 +489,7 @@ def main() -> None:
             st.markdown("---")
             st.success("Loaded documents")
             for name in st.session_state.doc_names:
-                st.write(f"• {name}")
+                st.write(f"- {name}")
             st.caption(f"Indexed chunks: {st.session_state.chunk_count}")
 
     if process_clicked:
@@ -428,7 +533,7 @@ def main() -> None:
             2. Click **Process documents**.
             3. Ask English questions in the chat box.
 
-            **Extractive mode** works on Streamlit Cloud with no keys and no GPU.  
+            **Extractive mode** works on Streamlit Cloud with no keys.  
             **Local Qwen mode** uses your preloaded model under `local_models/` (best on your PC).
             """
         )
@@ -469,7 +574,9 @@ def main() -> None:
             except Exception as exc:
                 error_text = f"Sorry, I could not answer that right now. Error: {exc}"
                 st.error(error_text)
-                st.session_state.messages.append({"role": "assistant", "content": error_text})
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": error_text}
+                )
 
 
 if __name__ == "__main__":
