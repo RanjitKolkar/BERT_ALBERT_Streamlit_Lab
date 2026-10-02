@@ -1,11 +1,60 @@
 # Hugging Face BERT, NER & Local LLM Teaching Lab v3
 
-## Zero-command classroom experience
+## Easy install (normal users — minimise work)
+
+**Windows (recommended): two double-clicks**
+
+| Order | File | What it does |
+|---|---|---|
+| 1 | `setup.bat` | Installs packages + **one** Local LLM download (Qwen) |
+| 2 | `run_app.bat` | Starts the app in your browser |
+
+- Easy install: [INSTALL.md](INSTALL.md)
+- **Full how-to (all models + chatbot + RAG advice):** [USER_GUIDE.md](USER_GUIDE.md)
+
+```text
+setup.bat  →  wait for SETUP COMPLETE  →  run_app.bat
+```
+
+- No API key
+- No manual model search
+- Default setup downloads **only the Local LLM** (not every tutorial model)
+- Optional full pack later: `setup_all_models.bat`
+
+One command (any OS):
+
+```bash
+python scripts/easy_setup.py
+streamlit run app.py
+```
+
+### Models in this project (10)
+
+| Group | Models | Used in |
+|---|---|---|
+| NER (4) | BERT NER, DistilBERT NER, RoBERTa NER, XLM-R NER | Tutorial Lab |
+| Encoders (5) | BERT uncased/cased, DistilBERT, RoBERTa, ALBERT | Tutorial Lab |
+| Local LLM (1) | Qwen2.5-0.5B-Instruct | Chatbot + Tutorial Lab |
+
+**Check installed status:** Tutorial Lab → **Model Library**, or see [USER_GUIDE.md](USER_GUIDE.md#1-installed-models-status-this-pc).
+
+### Context-based chatbot (best approach)
+
+Use **RAG**: retrieve the best document chunks first, then answer **only** from those chunks.
+
+| Mode | Best when |
+|---|---|
+| **Extractive** | You need answers strictly from the file (most reliable, no LLM) |
+| **Local Qwen** | You want a fluent English answer grounded in retrieved chunks |
+
+Details: [USER_GUIDE.md — Best way to solve context-based chatbot](USER_GUIDE.md#4-best-way-to-solve-a-context-based-chatbot-problem).
+
+## Zero-command classroom experience (after setup)
 
 The intended user workflow is simply:
 
 ```text
-Open Streamlit app
+Open Streamlit app (run_app.bat)
         ↓
 Select module
         ↓
@@ -16,7 +65,7 @@ Enter text / use demonstration
 Run
 ```
 
-Students do not need to run Python commands or download models manually.
+Students do not need to run Python commands or download models manually after the one-time setup.
 
 ## Model catalogue
 
@@ -60,17 +109,26 @@ This repository therefore contains:
 
 If model files are already present in `local_models/`, the application uses them locally.
 
-### Preload all models
+### Preload models
 
-To prepare the full classroom bundle offline, download every model from `models.json`:
+**Recommended for most users (one download — Local LLM only):**
 
 ```bash
-python scripts/preload_all_models.py
+python scripts/easy_setup.py
+# or double-click setup.bat on Windows
 ```
 
-This stores all NER, encoder, and local-LLM checkpoints under `local_models/`.
+**Full classroom bundle (all models in `models.json`):**
 
-If a model is still absent at runtime, the application can prepare it automatically from the Hugging Face Hub. For a truly offline deployment, run the preload script first.
+```bash
+python scripts/easy_setup.py --all
+# or: python scripts/preload_all_models.py
+# or double-click setup_all_models.bat on Windows
+```
+
+This stores checkpoints under `local_models/`.
+
+If a model is still absent at runtime, the application can prepare it automatically from the Hugging Face Hub (or use the in-app **Download Qwen** button). For a truly offline deployment, run setup first.
 
 ## Example-driven learning
 

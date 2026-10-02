@@ -93,7 +93,7 @@ def resolve_qwen_dir() -> Optional[Path]:
 
 
 st.set_page_config(
-    page_title="Document Context Chatbot",
+    page_title="Document Chatbot + Tutorial Lab",
     page_icon="📚",
     layout="wide",
 )
@@ -406,7 +406,7 @@ def clear_knowledge_base() -> None:
     st.session_state.chunk_count = 0
 
 
-def main() -> None:
+def render_document_chatbot() -> None:
     init_session_state()
 
     qwen_dir = resolve_qwen_dir()
@@ -417,10 +417,31 @@ def main() -> None:
         "No API key required. Upload documents and ask English questions. "
         "Answers come only from your uploaded content."
     )
+    with st.expander("How this context chatbot works (best practice)", expanded=False):
+        st.markdown(
+            """
+**Best approach = RAG (Retrieval-Augmented Generation)**
+
+1. Your files are split into passages (chunks)  
+2. Your question retrieves the **most relevant** passages (TF-IDF)  
+3. The answer is built **only** from those passages  
+
+| Mode | Use when |
+|---|---|
+| **Extractive** | Safest “from my documents only” — shows real passages |
+| **Local Qwen LLM** | Fluent English answer grounded in the same retrieved passages |
+
+**Tip:** Try Extractive first. If the sources look right, switch to Local Qwen for a polished answer.  
+Always read the **sources** under each reply.
+
+Full model list + how-to: see `USER_GUIDE.md` and `INSTALL.md` in the project folder.
+"""
+        )
 
     with st.sidebar:
-        st.header("Setup")
+        st.header("Chatbot setup")
         st.success("API key: not required")
+        st.caption("Guides: USER_GUIDE.md · INSTALL.md")
 
         default_mode = "local_llm" if local_ready else "extractive"
         mode_options = {
@@ -451,11 +472,18 @@ def main() -> None:
                 if _MM_ERROR:
                     st.caption(f"model_manager import note: {_MM_ERROR}")
 
+                st.markdown("#### Easy install (one download)")
+                st.caption(
+                    "Normal users: double-click **setup.bat** in the project folder "
+                    "(installs packages + downloads only this Local LLM). "
+                    "Then use **run_app.bat**. Full guide: INSTALL.md"
+                )
                 if ensure_model is not None and st.button(
-                    "Download Qwen into local_models/",
+                    "Download Qwen now (one model)",
+                    type="primary",
                     use_container_width=True,
                 ):
-                    with st.spinner("Downloading Qwen2.5-0.5B-Instruct..."):
+                    with st.spinner("Downloading Qwen2.5-0.5B-Instruct (one model)..."):
                         try:
                             path = ensure_model(LOCAL_LLM_ID)
                             st.success(f"Downloaded: {path}")
@@ -463,8 +491,9 @@ def main() -> None:
                         except Exception as exc:
                             st.error(f"Download failed: {exc}")
 
-                st.markdown("Or run in the project folder:")
-                st.code("python scripts/preload_all_models.py", language="bash")
+                st.markdown("Or one command in the project folder:")
+                st.code("python scripts/easy_setup.py", language="bash")
+                st.caption("Optional full tutorial pack: setup_all_models.bat")
 
         st.markdown("---")
         st.subheader("Upload documents")
@@ -577,6 +606,26 @@ def main() -> None:
                 st.session_state.messages.append(
                     {"role": "assistant", "content": error_text}
                 )
+
+
+def main() -> None:
+    st.sidebar.title("AI Lab")
+    app_mode = st.sidebar.radio(
+        "Application",
+        [
+            "Document Context Chatbot",
+            "Tutorial Lab (BERT / NER / ALBERT / Qwen)",
+        ],
+        key="app_mode",
+    )
+    st.sidebar.divider()
+
+    if app_mode.startswith("Tutorial"):
+        from tutorial_lab import render_tutorial_lab
+
+        render_tutorial_lab()
+    else:
+        render_document_chatbot()
 
 
 if __name__ == "__main__":
