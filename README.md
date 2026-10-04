@@ -1,80 +1,37 @@
-﻿# AI Document Lab (Chat · Learn · Install)
+# AI Document Lab (single-page flow)
 
-Rewritten classroom / research lab app for **document chat**, **learning Transformers**, and **one-click local model install**.
-**No API key** required for core use.
+One page. **No left drawer.** Guided journey:
 
-## App flow (sidebar)
+**Start -> Install kit -> Learn -> Practice -> Chat**
 
-| Order | Mode | What you do |
-|---|---|---|
-| **1** | **Chat** | Start here. See available project models. Upload PDF/Word/Excel/TXT and ask English questions. |
-| **2** | **Learn** | Lessons from AI basics → NLP → Transformers → NER/encoders → RAG/LLM → AGI honesty + hands-on practice. |
-| **3** | **Install yourself** | Guided library: what is best to begin, shortcomings, **one-click** Chat / Beginner / Everything packs. |
+No API key for core use. Install = **ZIP + setup guide on your machine**.
 
-```text
-Chat (Extractive)  →  Learn  →  Install beginner pack  →  richer demos
-```
+## Run
 
-## Quick start (Windows)
+`
+setup.bat
+run_app.bat
+`
 
-```text
-setup.bat      → packages + Local LLM (optional but useful)
-run_app.bat    → opens Streamlit
-```
+Or: streamlit run app.py
 
-Or:
+## Journey
 
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-## One-click installs (inside the app)
-
-Open **3 · Install yourself**:
-
-| Button | Downloads |
+| Step | What |
 |---|---|
-| **Chat pack** | Qwen2.5-0.5B-Instruct only |
-| **Beginner pack** (recommended) | DistilBERT NER + DistilBERT encoder + Qwen |
-| **Download everything** | All 10 models in `models.json` |
+| 1 Start | Welcome map |
+| 2 Install kit | Lab Setup Kit ZIP + SETUP_GUIDE.md |
+| 3 Learn | Lessons L0-L8 |
+| 4 Practice | Shared text, encoder, NER, LLM |
+| 5 Chat | Upload docs Q&A |
 
-Desktop equivalents: `setup.bat`, `setup_all_models.bat`.
+## Install on a user PC
 
-## Chat engines
+1. Download Lab Setup Kit (ZIP) in Install kit step
+2. Unzip
+3. Read SETUP_GUIDE.md
+4. setup.bat then run_app.bat
 
-| Engine | Needs model? | Notes |
-|---|---|---|
-| **Extractive** | No | Best first step, low memory, grounded passages |
-| **Local Qwen** | Yes (Install / setup.bat) | Fluent answer from retrieved chunks only |
+## Key files
 
-## Model catalogue (10)
-
-See **Install yourself** for level, best-for, shortcomings, and start advice.
-
-- NER (4): DistilBERT NER *(begin here)*, BERT NER, XLM-R NER, RoBERTa-large NER *(last)*
-- Encoders (5): DistilBERT *(begin here)*, BERT uncased/cased, RoBERTa, ALBERT
-- Local LLM (1): Qwen2.5-0.5B-Instruct
-
-## Project layout
-
-| File | Role |
-|---|---|
-| `app.py` | Main shell — Chat / Learn / Install |
-| `chat_module.py` | Document chatbot |
-| `learn_module.py` | Lessons + hands-on |
-| `install_module.py` | Guided one-click downloads |
-| `tutorial_lab.py` | Shared-document paper demos |
-| `model_manager.py` | Download / READY checks |
-| `runtime_memory.py` | One-model-at-a-time memory helpers |
-| `models.json` | Catalogue |
-| `local_models/` | Installed weights |
-| `INSTALL.md` / `USER_GUIDE.md` | Extra guides |
-
-## Design principles
-
-1. **Start with Chat** using what is already available
-2. **Learn** concepts before stacking large models
-3. **Install yourself** with clear begin-here vs install-last guidance
-4. Prefer **RAG** (retrieve then answer) over stuffing whole files into a small LLM
-5. Be honest: this lab is **not AGI** — narrow tools for teaching and document Q&A
+app.py, ui_flow.py, install_module.py, learn_module.py, tutorial_lab.py, chat_module.py, SETUP_GUIDE.md

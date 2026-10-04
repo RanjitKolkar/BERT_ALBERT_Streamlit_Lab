@@ -775,21 +775,27 @@ def render_local_llm_demo() -> None:
 
 
 def render_tutorial_lab() -> None:
+    from ui_flow import callout, lesson_stepper, mark_step_done, render_nav_buttons
+
     init_lab_state()
     configure_torch_runtime()
-    st.title("Tutorial Lab — paper workflow")
+    st.markdown("## Step 4 · Practice — hands-on tutorial")
     st.caption(
-        "Ordered for teaching/paper demos: shared forensic **text** first (paste or upload), "
-        "then encoders → NER → compare → local LLM on the **same** context. No API key."
+        "One shared document flows through every demo: text → models → encoder → NER → compare → local LLM. "
+        "No left menu. No API key."
+    )
+    callout(
+        "<b>Do these mini-steps in order.</b> Keep the same forensic text so paper comparisons stay fair."
     )
     st.caption(memory_caption())
-    if st.sidebar.button("Free model memory", use_container_width=True, key="lab_free_mem"):
-        msg = free_lab_model_memory()
-        st.sidebar.success(msg)
-    st.sidebar.caption(
-        "Loads **one model at a time**. Free memory after heavy demos. "
-        "Extractive chatbot uses almost no model RAM."
-    )
+
+    cmem1, cmem2 = st.columns([3, 1])
+    with cmem2:
+        if st.button("Free model memory", use_container_width=True, key="lab_free_mem"):
+            st.success(free_lab_model_memory())
+    with cmem1:
+        st.caption("Loads **one model at a time**. Free memory after heavy demos.")
+
     if _IMPORT_ERROR:
         st.warning(f"Model manager issue: {_IMPORT_ERROR}")
 
@@ -797,22 +803,18 @@ def render_tutorial_lab() -> None:
         st.markdown(
             """
 1. **Shared document text** — paste content (default) or upload PDF/Word/Excel/TXT
-2. **Model library** — confirm 10 models READY
+2. **Model library** — confirm models READY
 3. **Encoder demos** — BERT / ALBERT fill-mask on a sentence from the document
 4. **NER explorer** — entities from the same document text
 5. **Compare NER** — side-by-side models on one passage
 6. **Local LLM Q&A** — ask questions grounded in the shared document
 
 Default sample is a **one-page generic digital forensics summary** (no personal names).
-Replace it anytime by pasting your own text or uploading a file.
 """
         )
 
-    tab = st.sidebar.radio(
-        "Tutorial workflow",
-        WORKFLOW_STEPS,
-        key="tutorial_module",
-    )
+    idx = lesson_stepper(WORKFLOW_STEPS, "practice_idx", total_label="Practice step")
+    tab = WORKFLOW_STEPS[idx]
     render_workflow_banner(tab)
 
     if tab == WORKFLOW_STEPS[0]:
@@ -831,3 +833,18 @@ Replace it anytime by pasting your own text or uploading a file.
         render_compare_ner()
     else:
         render_local_llm_demo()
+
+    if idx >= len(WORKFLOW_STEPS) - 1:
+        callout(
+            "Practice path complete. Continue to <b>Chat</b> to try your own documents.",
+            kind="ok",
+        )
+        mark_step_done("practice")
+
+    st.markdown("---")
+    render_nav_buttons(
+        prev_key="learn",
+        next_key="chat",
+        next_label="Continue to Chat →",
+        mark_done_key="practice",
+    )

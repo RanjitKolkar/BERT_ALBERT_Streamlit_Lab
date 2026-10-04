@@ -1,288 +1,241 @@
-"""Learn mode — guided path from basics to Transformers, RAG, LLMs, and AGI context."""
+"""Learn stage — ordered theory path (single page, no drawer)."""
 
 from __future__ import annotations
 
 import streamlit as st
 
+from ui_flow import callout, lesson_stepper, render_nav_buttons
+
 LEARN_LESSONS = [
     {
         "id": "L0",
-        "title": "0 · How this lab is organised",
+        "title": "How this lab is organised",
         "mins": "3",
         "body": """
-### Three doors in the sidebar
+### The one-page journey
 
-| Mode | Purpose |
+| Step | Purpose |
 |---|---|
-| **1 · Chat** | Use document Q&A with whatever is already installed |
-| **2 · Learn** | Understand ideas before / while you install models |
-| **3 · Install yourself** | One-click downloads + honest guidance on each model |
+| **1 Start** | Map of the lab |
+| **2 Install kit** | ZIP + setup guide on **your machine** |
+| **3 Learn** | Theory (this stage) |
+| **4 Practice** | Hands-on on one shared document |
+| **5 Chat** | Your own files Q&A |
 
-### Suggested learning order
-1. Read this Learn path (L0 → L8)  
-2. Try **Chat** with Extractive mode on a small PDF  
-3. Install **Beginner pack** (small models only)  
-4. Try hands-on demos (NER / fill-mask / local LLM)  
-5. Only then install large models if you need them  
+### Suggested order
+1. Finish Learn lessons L0 → L8  
+2. Open **Practice** and walk its 6 mini-steps  
+3. Use **Chat** with Extractive mode  
+4. Only install large models if you need them  
 
-### What you will *not* get here
-- No paid API key is required for the core lab  
-- This is **not** AGI — we use narrow, specialised models  
-- Local Qwen is a **small** instruct model for teaching, not a production assistant
+### What you will *not* get
+- No paid API key for core use  
+- Not AGI — narrow specialised models  
+- Local Qwen is a **small** teaching LLM  
 """,
     },
     {
         "id": "L1",
-        "title": "1 · AI, ML, DL — plain language",
+        "title": "AI, ML, DL — plain language",
         "mins": "5",
         "body": """
 ### Artificial Intelligence (AI)
-Any system that performs tasks that look “smart” to humans (search, classify, generate text).
+Systems that perform tasks that look “smart” (search, classify, generate text).
 
 ### Machine Learning (ML)
 AI that **learns patterns from data** instead of only hand-written rules.
 
 ### Deep Learning (DL)
-ML with **multi-layer neural networks**. Modern NLP (BERT, GPT-style models) is DL.
+ML with **multi-layer neural networks**. Modern NLP (BERT, GPT-style) is DL.
 
 ```text
 AI  ⊃  Machine Learning  ⊃  Deep Learning  ⊃  Transformers / LLMs
 ```
 
-### Shortcoming to remember
-Bigger name ≠ better for your task. A small NER model can beat a general chatbot at finding person names in a police report.
+### Remember
+Bigger name ≠ better for your task. A small NER model can beat a general chatbot at finding person names in a report.
 """,
     },
     {
         "id": "L2",
-        "title": "2 · NLP tasks you will meet",
+        "title": "NLP tasks in this lab",
         "mins": "6",
         "body": """
-| Task | What it does | Lab model family |
+| Task | What it does | Where in the lab |
 |---|---|---|
-| **Classification** | Assign a label to text | (concept) |
-| **NER** | Find people, orgs, places, dates | BERT / DistilBERT / RoBERTa / XLM-R NER |
-| **Fill-mask** | Guess a hidden word | BERT, ALBERT, RoBERTa encoders |
-| **Generation** | Write new text | Local Qwen (small LLM) |
-| **Retrieval** | Find relevant passages | TF-IDF in Chat (no neural net) |
-| **RAG** | Retrieve then generate/answer | Chat = retrieve + extractive or Qwen |
+| **NER** | Find people, orgs, places, dates | Practice → NER |
+| **Fill-mask** | Guess a hidden word | Practice → Encoder |
+| **Generation** | Write new text | Practice / Chat (Qwen) |
+| **Retrieval** | Find relevant passages | Chat (TF-IDF) |
+| **RAG** | Retrieve then answer | Chat = retrieve + extractive or Qwen |
 
-### Forensic / document angle
-You usually want **grounded** answers: only what the file says. That is why Chat uses retrieval first.
+### Document angle
+You usually want **grounded** answers: only what the file says. Chat retrieves first.
 """,
     },
     {
         "id": "L3",
-        "title": "3 · Tokens, embeddings, attention (intuition)",
+        "title": "Tokens, embeddings, attention",
         "mins": "7",
         "body": """
 ### Tokens
-Text is split into pieces (words or subwords) called **tokens**. Models read numbers, not letters.
+Text is split into pieces (words or subwords). Models read numbers, not letters.
 
 ### Embeddings
-Each token becomes a vector (list of numbers) that captures meaning in context.
+Each token becomes a vector that captures meaning in context.
 
 ### Attention
-The model learns **which tokens matter to each other**  
-Example: in “the image hash was verified”, “hash” attends strongly to “image” and “verified”.
+The model learns **which tokens matter to each other**.
 
-### Why BERT vs GPT-style differs
-- **Encoders (BERT family):** see left *and* right context → great for NER, classification, fill-mask  
-- **Decoders (GPT / Qwen style):** predict next token → great for chat and generation  
+### BERT vs GPT-style
+- **Encoders (BERT family):** left *and* right context → NER, fill-mask  
+- **Decoders (Qwen style):** next-token prediction → chat / generation  
 
 This lab includes **both**.
 """,
     },
     {
         "id": "L4",
-        "title": "4 · Transformers architecture (core idea)",
+        "title": "Transformers architecture",
         "mins": "8",
         "body": """
-### The Transformer (2017 idea, still the backbone)
+### Core idea
 A stack of layers that mix **self-attention** + small feed-forward networks.
 
 ```text
 Input tokens → embeddings → N × (Attention + FFN) → task head
 ```
 
-### Hugging Face Transformers library
-In this project, the Python package `transformers` loads:
-
+### Hugging Face `transformers` here
 - tokenizer (text → ids)  
 - model weights (from `local_models/` when installed)  
-- optional `pipeline()` helpers for NER / fill-mask / generation  
+- `pipeline()` helpers for NER / fill-mask / generation  
 
-### What “fine-tuned” means
-A **base** model learns general language.  
-A **fine-tuned** model (e.g. BERT-NER) was further trained for one task (entities).
+### Fine-tuned
+A **base** model learns general language. A **fine-tuned** model (e.g. BERT-NER) was trained further for one task.
 
 ### Shortcoming
-Transformers are powerful but **heavy** on disk/RAM. Always start small (see Install guide).
+Powerful but **heavy** on disk/RAM. Always start small (Install kit → Beginner).
 """,
     },
     {
         "id": "L5",
-        "title": "5 · Encoders in this lab (BERT → ALBERT)",
+        "title": "Encoders (BERT → ALBERT)",
         "mins": "6",
         "body": """
-| Model | Good for | Beginner? | Shortcoming |
+| Model | Beginner? | Good for | Shortcoming |
 |---|---|---|---|
-| **DistilBERT** | Fast demos, less RAM | **Yes — start here** | Slightly weaker than full BERT |
-| **BERT uncased** | Classic teaching reference | Yes | Larger than DistilBERT |
-| **BERT cased** | When capitals matter | Medium | Same size as BERT |
-| **RoBERTa base** | Strong encoder baseline | Medium | Different mask token (`<mask>`) |
-| **ALBERT** | Parameter-efficient encoder | Medium | Can feel different / slower to grasp |
+| **DistilBERT** | **Start here** | Fast demos | Slightly weaker than BERT |
+| **BERT uncased** | Yes | Classic teaching | Larger than DistilBERT |
+| **BERT cased** | Yes | Capitals matter | Same size as BERT |
+| **RoBERTa** | Medium | Strong baseline | Uses `<mask>` |
+| **ALBERT** | Medium | Parameter sharing | Can feel different |
 
-### Hands-on later
-Learn tab → **Try encoder fill-mask** (needs model installed).
+Next: **Practice → Encoder demos**.
 """,
     },
     {
         "id": "L6",
-        "title": "6 · NER models — pick wisely",
+        "title": "NER models — pick wisely",
         "mins": "6",
         "body": """
 | Model | Beginner? | Strength | Shortcoming |
 |---|---|---|---|
-| **DistilBERT NER** | **Best first NER** | Small, fast | English-focused, compact |
-| **BERT NER** | Great second step | Standard classroom NER | Medium size |
-| **XLM-R NER** | If you need other languages | Multilingual | Heavier; not first install |
-| **RoBERTa-large NER** | Advanced compare only | Often strong English NER | **Large RAM/disk** — install last |
+| **DistilBERT NER** | **Best first** | Small, fast | Compact English focus |
+| **BERT NER** | Great 2nd | Standard classroom NER | Medium size |
+| **XLM-R NER** | Later | Multilingual | Heavier |
+| **RoBERTa-large NER** | Last | Strong English | **Large RAM** |
 
-### Teaching tip
-Compare 2 small models on the **same sentence** before adding large ones.
+Tip: compare **2 small models** on the same sentence before adding large ones.
 """,
     },
     {
         "id": "L7",
-        "title": "7 · Chat, RAG, and local LLM (Qwen)",
+        "title": "Chat, RAG, and local LLM",
         "mins": "8",
         "body": """
-### Best pattern for document chat = RAG
+### Best pattern = RAG
 ```text
-Your files → chunks → retrieve top passages → answer ONLY from them
-   ├─ Extractive: show passages (safest, low memory)
-   └─ Local Qwen: rewrite a fluent answer from those passages
+Files → chunks → retrieve top passages → answer ONLY from them
+   ├─ Extractive: show passages (safest)
+   └─ Local Qwen: fluent rewrite from those passages
 ```
 
-### Qwen2.5-0.5B-Instruct in this lab
-- Small **local** generative model (no cloud API key)  
+### Qwen2.5-0.5B-Instruct
+- Small **local** generative model  
 - Good for **teaching** grounded Q&A  
-- **Not** a replacement for large commercial assistants  
+- **Not** a cloud-grade assistant  
 
-| Approach | Best when | Shortcoming |
+| Approach | When | Shortcoming |
 |---|---|---|
-| Extractive | Always start here | Less “chatty” |
-| Local Qwen | Fluent summary of retrieved text | Uses more RAM; can still err |
-| Whole PDF into LLM | Almost never on small models | Truncation + hallucinations |
+| Extractive | Always start | Less “chatty” |
+| Local Qwen | Fluent summary | More RAM; can still err |
+| Whole PDF into LLM | Almost never | Truncation + hallucinations |
 
-### Install tip
-Chat works **without** Qwen. Install Qwen only when you want generative mode.
+Chat works **without** Qwen.
 """,
     },
     {
         "id": "L8",
-        "title": "8 · LLMs, agents, and AGI — honest map",
+        "title": "LLMs, agents, AGI — honest map",
         "mins": "7",
         "body": """
-### Large Language Models (LLMs)
-Generative models trained on broad text. Scale ranges from &lt;1B params (this lab’s Qwen) to hundreds of billions.
+### LLMs
+Generative models trained on broad text. This lab’s Qwen is small (&lt;1B class).
 
-### What people call “agents”
-Systems that **plan + use tools** (search, code, APIs) in a loop. This lab focuses on **models + RAG**, not full agents.
+### Agents
+Systems that plan + use tools in a loop. This lab focuses on **models + RAG**, not full agents.
 
-### AGI (Artificial General Intelligence)
-A hypothetical system with broad human-like competence across many tasks.  
+### AGI
+Hypothetical broad human-like competence. **Nothing here is AGI.**
 
-**Important:** nothing in this repository is AGI.  
-BERT NER, ALBERT, and Qwen-0.5B are **narrow tools**. Treating them as AGI causes bad science and bad forensics.
+### Responsible checklist
+- Prefer document-grounded answers  
+- Show sources  
+- Know model limits  
+- Do not invent facts absent from evidence  
 
-### Responsible use checklist
-- Prefer **document-grounded** answers for casework-style teaching  
-- Show **sources**  
-- Know model **limits** (language, size, domain)  
-- Do not invent facts not present in evidence text  
-
-### Where to go next in the app
-1. **Chat** — practice RAG on a forensic-style PDF  
-2. **Install yourself** — Beginner pack first  
-3. Return here, then open **Hands-on practice** below  
+### Next
+Open **Practice** (shared text → encoder → NER → LLM), then **Chat**.
 """,
     },
 ]
 
 
 def render_learn() -> None:
-    st.title("2 · Learn — from basics to Transformers & beyond")
-    st.caption(
-        "Read in order. No download required for the theory lessons. "
-        "Hands-on practice needs models from **Install yourself**."
+    st.markdown("## Step 3 · Learn — concepts in order")
+    st.caption("Read one lesson at a time. No model download required for theory.")
+
+    callout(
+        "Use <b>Previous / Next</b> below. Finish L0→L8, then continue to <b>Practice</b>."
     )
 
-    lesson_titles = [f"{x['title']}  ·  ~{x['mins']} min" for x in LEARN_LESSONS]
-    choice = st.selectbox("Lesson", lesson_titles, key="learn_lesson_select")
-    idx = lesson_titles.index(choice)
+    titles = [f"{x['id']} · {x['title']} (~{x['mins']} min)" for x in LEARN_LESSONS]
+    idx = lesson_stepper(titles, "learn_idx", total_label="Lesson")
     lesson = LEARN_LESSONS[idx]
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("← Previous", disabled=idx == 0, use_container_width=True):
-            st.session_state.learn_lesson_select = lesson_titles[idx - 1]
-            st.rerun()
-    with c2:
-        st.metric("Progress", f"{idx + 1} / {len(LEARN_LESSONS)}")
-    with c3:
-        if st.button(
-            "Next →", disabled=idx >= len(LEARN_LESSONS) - 1, use_container_width=True
-        ):
-            st.session_state.learn_lesson_select = lesson_titles[idx + 1]
-            st.rerun()
-
+    st.markdown(f"### {lesson['id']} · {lesson['title']}")
     st.markdown(lesson["body"])
 
+    # Lesson jump chips
+    with st.expander("Jump to any lesson", expanded=False):
+        cols = st.columns(3)
+        for i, title in enumerate(titles):
+            with cols[i % 3]:
+                if st.button(title, key=f"learn_jump_{i}", use_container_width=True):
+                    st.session_state.learn_idx = i
+                    st.rerun()
+
+    if idx >= len(LEARN_LESSONS) - 1:
+        callout(
+            "Theory complete. Continue to <b>Practice</b> for the hands-on paper workflow.",
+            kind="ok",
+        )
+
     st.markdown("---")
-    st.subheader("Hands-on practice (optional)")
-    st.caption("Uses installed local models. If missing, the app will guide you to Install.")
-
-    practice = st.radio(
-        "Practice area",
-        [
-            "Overview only",
-            "Encoder fill-mask (BERT family)",
-            "NER explorer",
-            "Compare NER",
-            "Local LLM on shared text",
-            "Full paper workflow lab",
-        ],
-        key="learn_practice",
+    render_nav_buttons(
+        prev_key="install",
+        next_key="practice",
+        next_label="Continue to Practice →",
+        mark_done_key="learn",
     )
-
-    if practice == "Overview only":
-        st.info(
-            "Finish the lessons, then try Chat. When ready for models, open "
-            "**Install yourself** → one-click Beginner pack."
-        )
-        return
-
-    try:
-        from tutorial_lab import (
-            render_compare_ner,
-            render_encoder_explorer,
-            render_local_llm_demo,
-            render_ner_explorer,
-            render_tutorial_lab,
-        )
-    except Exception as exc:
-        st.error(f"Hands-on lab could not load: {exc}")
-        return
-
-    if practice == "Encoder fill-mask (BERT family)":
-        render_encoder_explorer()
-    elif practice == "NER explorer":
-        render_ner_explorer()
-    elif practice == "Compare NER":
-        render_compare_ner()
-    elif practice == "Local LLM on shared text":
-        render_local_llm_demo()
-    else:
-        render_tutorial_lab()

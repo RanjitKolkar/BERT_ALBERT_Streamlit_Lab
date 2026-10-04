@@ -1,4 +1,4 @@
-"""Chat mode — document Q&A using available project models (no API key)."""
+"""Chat stage — document Q&A on the main page (no left drawer)."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from runtime_memory import (
     memory_caption,
     model_load_kwargs,
 )
+from ui_flow import callout, render_nav_buttons
 
 try:
     import docx2txt
@@ -234,9 +235,7 @@ def extractive_answer(question: str, hits: List[Tuple[Chunk, float]]) -> str:
         lines.append(f"**{i}. From {label_chunk(chunk)}** (match {score:.2f})")
         lines.append(snippet)
         lines.append("")
-    lines.append(
-        "_Extractive mode — closest passages from your files. No API key._"
-    )
+    lines.append("_Extractive mode — closest passages from your files. No API key._")
     return "\n".join(lines).strip()
 
 
@@ -311,15 +310,15 @@ def local_llm_answer(
     model_dir = resolve_qwen_dir()
     if model_dir is None:
         return None, (
-            "Local Qwen not found. Open **Install yourself** and download the Local LLM, "
-            f"or run setup.bat. Expected under: {MODEL_ROOT}"
+            "Local Qwen not found. Go to **Install kit**, download the Setup ZIP / run setup.bat, "
+            f"or fetch Chat pack. Expected under: {MODEL_ROOT}"
         )
 
     try:
         import torch  # noqa: F401
         import transformers  # noqa: F401
     except Exception as exc:
-        return None, f"Need torch + transformers. Use Install yourself. Details: {exc}"
+        return None, f"Need torch + transformers. Use Install kit / setup.bat. Details: {exc}"
 
     try:
         tokenizer, model = load_local_llm(str(model_dir))
@@ -408,125 +407,98 @@ def clear_knowledge_base() -> None:
     st.session_state.chunk_count = 0
 
 
-def render_available_models_panel() -> None:
-    st.subheader("Available models in this project")
+def render_chat() -> None:
+    """Main-page Chat UI (no sidebar)."""
+    init_session_state()
+    configure_torch_runtime()
+
+    st.markdown("## Step 5 · Chat — document Q&A")
     st.caption(
-        "Status from `local_models/` + `models.json`. "
-        "Chat works with **Extractive** even if neural models are missing."
+        "Upload files on this page, process them, then ask English questions. "
+        "Extractive mode needs no neural model. **No API key.**"
     )
+    callout(
+        "<b>Flow on this page:</b> (1) choose engine → (2) upload & process → (3) ask below."
+    )
+
+    # --- status strip ---
+    qwen_dir = resolve_qwen_dir()
     try:
         rows = status_report()
     except Exception:
         rows = []
-    if not rows:
-        st.warning("Could not read model catalogue. Open **Install yourself**.")
-        return
-    ready = sum(1 for r in rows if r["ready"])
-    st.metric("Ready locally", f"{ready}/{len(rows)}")
-    st.dataframe(
-        [
-            {
-                "Name": r["name"],
-                "ID": r["id"],
-                "Status": "READY" if r["ready"] else "NOT INSTALLED",
-            }
-            for r in rows
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
-    qwen = resolve_qwen_dir()
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("**Chat engines**")
-        st.write("- Extractive search (always on, low memory)")
-        if qwen:
-            st.write(f"- Local Qwen READY: `{qwen.name}`")
+    ready = sum(1 for r in rows if r.get("ready")) if rows else 0
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Catalogue ready", f"{ready}/{len(rows) if rows else 0}")
+    m2.metric("Docs loaded", len(st.session_state.doc_names))
+    m3.metric("Chunks", st.session_state.chunk_count)
+    m4.metric("Qwen", "READY" if qwen_dir else "optional")
+    st.caption(memory_caption())
+
+    with st.expander("Available models on this PC", expanded=False):
+        if not rows:
+            st.warning("Could not read model catalogue. Use Install kit.")
         else:
-            st.write("- Local Qwen: not installed → use **Install yourself**")
-    with c2:
-        st.markdown("**Need a model?**")
-        st.write("Go to sidebar → **3 · Install yourself**")
-        st.write("One-click: download beginner pack or everything")
+            st.dataframe(
+                [
+                    {
+                        "Name": r["name"],
+                        "ID": r["id"],
+                        "Status": "READY" if r["ready"] else "NOT INSTALLED",
+                    }
+                    for r in rows
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
 
+    # --- setup row ---
+    st.markdown("### 1 · Answer engine")
+    mode_options = {
+        "Extractive (begin here — low memory)": "extractive",
+        "Local Qwen LLM (needs install)": "local_llm",
+    }
+    labels = list(mode_options.keys())
+    current = st.session_state.get("answer_mode", "extractive")
+    default_i = 0 if current != "local_llm" else 1
+    chosen = st.radio("Engine", labels, index=default_i, horizontal=True, label_visibility="collapsed")
+    st.session_state.answer_mode = mode_options[chosen]
 
-def render_chat() -> None:
-    """Main Chat mode UI."""
-    init_session_state()
-    configure_torch_runtime()
-
-    st.title("1 · Chat — document context assistant")
-    st.caption(
-        "Start here. Upload project files (PDF/Word/Excel/TXT), then ask English questions. "
-        "Uses models already in this project when available. **No API key.**"
-    )
-
-    with st.expander("Available models (this PC / project)", expanded=True):
-        render_available_models_panel()
-
-    qwen_dir = resolve_qwen_dir()
-    local_ready = qwen_dir is not None
-
-    with st.sidebar:
-        st.header("Chat setup")
-        st.success("API key: not required")
-
-        mode_options = {
-            "Extractive (begin here — low memory)": "extractive",
-            "Local Qwen LLM (needs install)": "local_llm",
-        }
-        labels = list(mode_options.keys())
-        current = st.session_state.get("answer_mode", "extractive")
-        default_label = labels[0] if current != "local_llm" else labels[1]
-        chosen = st.radio(
-            "Answer engine",
-            labels,
-            index=labels.index(default_label),
-            help="Extractive = best first step. Local Qwen = fluent answers from retrieved text.",
-        )
-        st.session_state.answer_mode = mode_options[chosen]
-        st.caption(memory_caption())
-        if st.button("Free model memory", use_container_width=True, key="chat_free_mem"):
-            st.success(free_chatbot_model_memory())
-
+    t1, t2 = st.columns([3, 1])
+    with t1:
         if st.session_state.answer_mode == "local_llm":
-            if local_ready:
-                st.info(f"Qwen ready:\n{qwen_dir}")
+            if qwen_dir:
+                st.success(f"Qwen ready: `{qwen_dir.name}`")
             else:
-                st.warning("Qwen not installed yet.")
-                st.caption("Open **Install yourself** → Beginner pack or Local LLM only.")
-                if ensure_model is not None and st.button(
-                    "Quick download Qwen", type="primary", use_container_width=True
-                ):
+                st.warning("Qwen not installed. Use Install kit ZIP / setup.bat, or fetch below.")
+                if ensure_model is not None and st.button("Quick download Qwen", type="primary"):
                     with st.spinner("Downloading Local LLM..."):
                         try:
                             ensure_model(LOCAL_LLM_ID)
-                            st.success("Downloaded. Ask again.")
+                            st.success("Downloaded.")
                             st.rerun()
                         except Exception as exc:
                             st.error(str(exc))
+    with t2:
+        if st.button("Free model memory", use_container_width=True):
+            st.success(free_chatbot_model_memory())
 
-        st.markdown("---")
-        st.subheader("Your documents")
-        uploaded_files = st.file_uploader(
-            "PDF / Word / Excel / CSV / TXT",
-            type=SUPPORTED_TYPES,
-            accept_multiple_files=True,
-            key="chat_uploads",
-        )
-        process_clicked = st.button(
-            "Process documents", type="primary", use_container_width=True
-        )
-        st.button("Clear chat", on_click=reset_chat, use_container_width=True)
-        st.button(
-            "Clear documents", on_click=clear_knowledge_base, use_container_width=True
-        )
+    # --- documents ---
+    st.markdown("### 2 · Upload & process documents")
+    uploaded_files = st.file_uploader(
+        "PDF / Word / Excel / CSV / TXT",
+        type=SUPPORTED_TYPES,
+        accept_multiple_files=True,
+        key="chat_uploads",
+    )
+    b1, b2, b3 = st.columns(3)
+    process_clicked = b1.button("Process documents", type="primary", use_container_width=True)
+    b2.button("Clear chat", on_click=reset_chat, use_container_width=True)
+    b3.button("Clear documents", on_click=clear_knowledge_base, use_container_width=True)
 
-        if st.session_state.doc_names:
-            st.success("Loaded")
-            for name in st.session_state.doc_names:
-                st.write(f"- {name}")
-            st.caption(f"Chunks: {st.session_state.chunk_count}")
+    if st.session_state.doc_names:
+        st.success("Loaded: " + ", ".join(st.session_state.doc_names))
 
     if process_clicked:
         if not uploaded_files:
@@ -559,54 +531,59 @@ def render_chat() -> None:
                 except Exception as exc:
                     st.error(f"Failed to process: {exc}")
 
+    # --- chat ---
+    st.markdown("### 3 · Ask questions")
     if not st.session_state.chunks:
-        st.info(
-            """
-**Quick start**
-1. Upload documents in the sidebar  
-2. Click **Process documents**  
-3. Ask questions in the chat box  
-
-**Recommended path:** Chat (Extractive) → Learn → Install more models if you need NER/BERT demos.
-"""
+        callout(
+            "No documents processed yet. Upload above and click <b>Process documents</b>. "
+            "Extractive chat works without installing neural models.",
+            kind="warn",
         )
-        return
-
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            if message.get("sources"):
-                with st.expander("Sources used"):
-                    for source in message["sources"]:
-                        st.markdown(f"- {source}")
-
-    user_question = st.chat_input("Ask an English question about your document(s)...")
-    if not user_question:
-        return
-
-    st.session_state.messages.append({"role": "user", "content": user_question})
-    with st.chat_message("user"):
-        st.markdown(user_question)
-
-    with st.chat_message("assistant"):
-        with st.spinner("Searching your documents..."):
-            try:
-                result = answer_question(user_question)
-                answer = str(result["answer"])
-                sources = result.get("sources") or []
-                mode = result.get("mode", "extractive")
-                st.caption(f"Engine: {mode}")
-                st.markdown(answer)
-                if sources:
+    else:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+                if message.get("sources"):
                     with st.expander("Sources used"):
-                        for source in sources:
+                        for source in message["sources"]:
                             st.markdown(f"- {source}")
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": answer, "sources": sources}
-                )
-            except Exception as exc:
-                error_text = f"Could not answer right now. Error: {exc}"
-                st.error(error_text)
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": error_text}
-                )
+
+        user_question = st.chat_input("Ask an English question about your document(s)...")
+        if user_question:
+            st.session_state.messages.append({"role": "user", "content": user_question})
+            with st.chat_message("user"):
+                st.markdown(user_question)
+            with st.chat_message("assistant"):
+                with st.spinner("Searching your documents..."):
+                    try:
+                        result = answer_question(user_question)
+                        answer = str(result["answer"])
+                        sources = result.get("sources") or []
+                        mode = result.get("mode", "extractive")
+                        st.caption(f"Engine: {mode}")
+                        st.markdown(answer)
+                        if sources:
+                            with st.expander("Sources used"):
+                                for source in sources:
+                                    st.markdown(f"- {source}")
+                        st.session_state.messages.append(
+                            {"role": "assistant", "content": answer, "sources": sources}
+                        )
+                    except Exception as exc:
+                        error_text = f"Could not answer right now. Error: {exc}"
+                        st.error(error_text)
+                        st.session_state.messages.append(
+                            {"role": "assistant", "content": error_text}
+                        )
+
+    st.markdown("---")
+    render_nav_buttons(
+        prev_key="practice",
+        next_key=None,
+        mark_done_key="chat",
+    )
+    # Mark complete when user has docs
+    if st.session_state.chunk_count:
+        from ui_flow import mark_step_done
+
+        mark_step_done("chat")
