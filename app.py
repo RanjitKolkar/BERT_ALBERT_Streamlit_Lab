@@ -9,7 +9,7 @@ from __future__ import annotations
 import streamlit as st
 
 from runtime_memory import configure_torch_runtime
-from ui_flow import FLOW_STEPS, callout, goto_step, mark_step_done, render_flow_header, render_nav_buttons
+from ui_flow import FLOW_STEPS, callout, render_flow_header, render_nav_buttons
 
 st.set_page_config(
     page_title="AI Document Lab",
@@ -56,15 +56,24 @@ def render_start() -> None:
 """
     )
 
+    from ui_flow import make_goto_callback
+
     b1, b2 = st.columns(2)
     with b1:
-        if st.button("Start journey → Install kit", type="primary", use_container_width=True):
-            mark_step_done("start")
-            goto_step("install")
+        st.button(
+            "Start journey → Install kit",
+            type="primary",
+            use_container_width=True,
+            key="start_to_install",
+            on_click=make_goto_callback("install", mark_done_key="start"),
+        )
     with b2:
-        if st.button("Skip to Chat (Extractive)", use_container_width=True):
-            mark_step_done("start")
-            goto_step("chat")
+        st.button(
+            "Skip to Chat (Extractive)",
+            use_container_width=True,
+            key="start_to_chat",
+            on_click=make_goto_callback("chat", mark_done_key="start"),
+        )
 
     st.markdown("---")
     render_nav_buttons(

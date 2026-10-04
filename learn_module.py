@@ -221,10 +221,20 @@ def render_learn() -> None:
     with st.expander("Jump to any lesson", expanded=False):
         cols = st.columns(3)
         for i, title in enumerate(titles):
-            with cols[i % 3]:
-                if st.button(title, key=f"learn_jump_{i}", use_container_width=True):
+
+            def _jump(i=i):
+                def _cb() -> None:
                     st.session_state.learn_idx = i
-                    st.rerun()
+
+                return _cb
+
+            with cols[i % 3]:
+                st.button(
+                    title,
+                    key=f"learn_jump_{i}",
+                    use_container_width=True,
+                    on_click=_jump(i),
+                )
 
     if idx >= len(LEARN_LESSONS) - 1:
         callout(

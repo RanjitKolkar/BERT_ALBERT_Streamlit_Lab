@@ -172,6 +172,14 @@ def init_flow_state() -> None:
         st.session_state.flow_completed = set(st.session_state.flow_completed or [])
 
 
+def flow_labels() -> List[str]:
+    return [f"{s['num']}. {s['label']} — {s['title']}" for s in FLOW_STEPS]
+
+
+def flow_keys() -> List[str]:
+    return [s["key"] for s in FLOW_STEPS]
+
+
 def mark_step_done(key: str) -> None:
     init_flow_state()
     done = set(st.session_state.flow_completed)
@@ -179,20 +187,40 @@ def mark_step_done(key: str) -> None:
     st.session_state.flow_completed = done
 
 
-def goto_step(key: str) -> None:
+def _sync_nav_radio_from_step(step_key: str) -> None:
+    """Set radio session value. Call only before the radio widget is created (or in on_click)."""
+    labels = flow_labels()
+    keys = flow_keys()
+    if step_key in keys:
+        st.session_state.flow_nav_radio = labels[keys.index(step_key)]
+
+
+def goto_step(key: str, mark_done_key: Optional[str] = None) -> None:
+    """
+    Navigate to a journey step.
+
+    Prefer on_click=make_goto_callback(...) on buttons. Direct calls are only safe
+    *before* the flow_nav_radio widget is created in the current run.
+    """
     init_flow_state()
+    if mark_done_key:
+        mark_step_done(mark_done_key)
     st.session_state.flow_step = key
-    # Keep top radio in sync with programmatic navigation
-    labels = [f"{s['num']}. {s['label']} — {s['title']}" for s in FLOW_STEPS]
-    keys = [s["key"] for s in FLOW_STEPS]
-    if key in keys:
-        st.session_state.flow_nav_radio = labels[keys.index(key)]
-    st.rerun()
+    _sync_nav_radio_from_step(key)
+
+
+def make_goto_callback(key: str, mark_done_key: Optional[str] = None):
+    """on_click callback — runs before widgets, so session_state widget keys are safe."""
+
+    def _cb() -> None:
+        goto_step(key, mark_done_key=mark_done_key)
+
+    return _cb
 
 
 def current_step_index() -> int:
     init_flow_state()
-    keys = [s["key"] for s in FLOW_STEPS]
+    keys = flow_keys()
     key = st.session_state.flow_step
     return keys.index(key) if key in keys else 0
 
@@ -202,7 +230,19 @@ def render_flow_header() -> str:
     init_flow_state()
     inject_app_css()
 
+    labels = flow_labels()
+    keys = flow_keys()
     idx = current_step_index()
+
+    # MUST run before st.radio(key="flow_nav_radio"): align radio with flow_step
+    # (e.g. after Continue/Back on_click set flow_step).
+    expected = labels[idx]
+    if st.session_state.get("flow_nav_radio") not in labels:
+        st.session_state.flow_nav_radio = expected
+    elif st.session_state.flow_nav_radio != expected:
+        # Programmatic navigation changed the step; update radio before instantiate
+        st.session_state.flow_nav_radio = expected
+
     done = set(st.session_state.flow_completed)
     pills_html = []
     for i, step in enumerate(FLOW_STEPS):
@@ -232,8 +272,7 @@ def render_flow_header() -> str:
         unsafe_allow_html=True,
     )
 
-    # Progress bar
-    pct = (idx) / max(len(FLOW_STEPS) - 1, 1)
+    pct = idx / max(len(FLOW_STEPS) - 1, 1)
     st.markdown(
         f'<div class="progress-label">Journey progress · Step {idx + 1} of {len(FLOW_STEPS)} · '
         f'{FLOW_STEPS[idx]["title"]}</div>',
@@ -241,21 +280,17 @@ def render_flow_header() -> str:
     )
     st.progress(min(1.0, pct if idx < len(FLOW_STEPS) - 1 else 1.0))
 
-    labels = [f"{s['num']}. {s['label']} — {s['title']}" for s in FLOW_STEPS]
+    # No index= when key= is used — value comes from session_state only
     choice = st.radio(
         "Jump to stage",
         labels,
-        index=idx,
         horizontal=True,
         label_visibility="collapsed",
         key="flow_nav_radio",
     )
-    chosen_key = FLOW_STEPS[labels.index(choice)]["key"]
-    if chosen_key != st.session_state.flow_step:
-        st.session_state.flow_step = chosen_key
-        st.rerun()
-
-    return st.session_state.flow_step
+    chosen_key = keys[labels.index(choice)]
+    st.session_state.flow_step = chosen_key
+    return chosen_key
 
 
 def render_nav_buttons(
@@ -265,22 +300,31 @@ def render_nav_buttons(
     next_label: str = "Continue →",
     mark_done_key: Optional[str] = None,
 ) -> None:
-    """Bottom previous / next for linear flow."""
+    """Bottom previous / next for linear flow (on_click-safe for Streamlit 1.45+)."""
     c1, c2, c3 = st.columns([1, 2, 1])
     with c1:
         if prev_key:
-            if st.button("← Back", use_container_width=True, key=f"nav_back_{prev_key}"):
-                goto_step(prev_key)
+            st.button(
+                "← Back",
+                use_container_width=True,
+                key=f"nav_back_{prev_key}",
+                on_click=make_goto_callback(prev_key),
+            )
         else:
             st.write("")
     with c2:
-        st.caption("Follow steps in order the first time. You can jump anytime using the top bar.")
+        st.caption(
+            "Follow steps in order the first time. You can jump anytime using the top bar."
+        )
     with c3:
         if next_key:
-            if st.button(next_label, type="primary", use_container_width=True, key=f"nav_next_{next_key}"):
-                if mark_done_key:
-                    mark_step_done(mark_done_key)
-                goto_step(next_key)
+            st.button(
+                next_label,
+                type="primary",
+                use_container_width=True,
+                key=f"nav_next_{next_key}",
+                on_click=make_goto_callback(next_key, mark_done_key=mark_done_key),
+            )
 
 
 def panel_start(title: str, body_html: str = "") -> None:
@@ -312,12 +356,23 @@ def lesson_stepper(
     idx = max(0, min(idx, len(titles) - 1))
     st.session_state[index_key] = idx
 
+    def _bump(delta: int):
+        def _cb() -> None:
+            cur = int(st.session_state.get(index_key, 0))
+            st.session_state[index_key] = max(0, min(cur + delta, len(titles) - 1))
+
+        return _cb
+
     st.progress((idx + 1) / len(titles))
     c1, c2, c3 = st.columns([1, 2, 1])
     with c1:
-        if st.button("← Previous", disabled=idx <= 0, use_container_width=True, key=f"{index_key}_prev"):
-            st.session_state[index_key] = idx - 1
-            st.rerun()
+        st.button(
+            "← Previous",
+            disabled=idx <= 0,
+            use_container_width=True,
+            key=f"{index_key}_prev",
+            on_click=_bump(-1),
+        )
     with c2:
         st.markdown(
             f"**{total_label} {idx + 1} / {len(titles)}**  \n"
@@ -325,13 +380,12 @@ def lesson_stepper(
             unsafe_allow_html=True,
         )
     with c3:
-        if st.button(
+        st.button(
             "Next →",
             disabled=idx >= len(titles) - 1,
             type="primary",
             use_container_width=True,
             key=f"{index_key}_next",
-        ):
-            st.session_state[index_key] = idx + 1
-            st.rerun()
+            on_click=_bump(1),
+        )
     return idx
