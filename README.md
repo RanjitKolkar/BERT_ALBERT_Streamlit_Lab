@@ -1,164 +1,80 @@
-# Hugging Face BERT, NER & Local LLM Teaching Lab v3
+﻿# AI Document Lab (Chat · Learn · Install)
 
-## Easy install (normal users — minimise work)
+Rewritten classroom / research lab app for **document chat**, **learning Transformers**, and **one-click local model install**.
+**No API key** required for core use.
 
-**Windows (recommended): two double-clicks**
+## App flow (sidebar)
 
-| Order | File | What it does |
+| Order | Mode | What you do |
 |---|---|---|
-| 1 | `setup.bat` | Installs packages + **one** Local LLM download (Qwen) |
-| 2 | `run_app.bat` | Starts the app in your browser |
-
-- Easy install: [INSTALL.md](INSTALL.md)
-- **Full how-to (all models + chatbot + RAG advice):** [USER_GUIDE.md](USER_GUIDE.md)
+| **1** | **Chat** | Start here. See available project models. Upload PDF/Word/Excel/TXT and ask English questions. |
+| **2** | **Learn** | Lessons from AI basics → NLP → Transformers → NER/encoders → RAG/LLM → AGI honesty + hands-on practice. |
+| **3** | **Install yourself** | Guided library: what is best to begin, shortcomings, **one-click** Chat / Beginner / Everything packs. |
 
 ```text
-setup.bat  →  wait for SETUP COMPLETE  →  run_app.bat
+Chat (Extractive)  →  Learn  →  Install beginner pack  →  richer demos
 ```
 
-- No API key
-- No manual model search
-- Default setup downloads **only the Local LLM** (not every tutorial model)
-- Optional full pack later: `setup_all_models.bat`
+## Quick start (Windows)
 
-One command (any OS):
+```text
+setup.bat      → packages + Local LLM (optional but useful)
+run_app.bat    → opens Streamlit
+```
+
+Or:
 
 ```bash
-python scripts/easy_setup.py
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
-### Models in this project (10)
+## One-click installs (inside the app)
 
-| Group | Models | Used in |
-|---|---|---|
-| NER (4) | BERT NER, DistilBERT NER, RoBERTa NER, XLM-R NER | Tutorial Lab |
-| Encoders (5) | BERT uncased/cased, DistilBERT, RoBERTa, ALBERT | Tutorial Lab |
-| Local LLM (1) | Qwen2.5-0.5B-Instruct | Chatbot + Tutorial Lab |
+Open **3 · Install yourself**:
 
-**Check installed status:** Tutorial Lab → **Model Library**, or see [USER_GUIDE.md](USER_GUIDE.md#1-installed-models-status-this-pc).
-
-### Context-based chatbot (best approach)
-
-Use **RAG**: retrieve the best document chunks first, then answer **only** from those chunks.
-
-| Mode | Best when |
+| Button | Downloads |
 |---|---|
-| **Extractive** | You need answers strictly from the file (most reliable, no LLM) |
-| **Local Qwen** | You want a fluent English answer grounded in retrieved chunks |
+| **Chat pack** | Qwen2.5-0.5B-Instruct only |
+| **Beginner pack** (recommended) | DistilBERT NER + DistilBERT encoder + Qwen |
+| **Download everything** | All 10 models in `models.json` |
 
-Details: [USER_GUIDE.md — Best way to solve context-based chatbot](USER_GUIDE.md#4-best-way-to-solve-a-context-based-chatbot-problem).
+Desktop equivalents: `setup.bat`, `setup_all_models.bat`.
 
-### Tutorial Lab — paper workflow order
+## Chat engines
 
-1. **Shared document text** (default = pasteable forensic page; optional PDF/Word upload)  
-2. **Model library**  
-3. **Encoder demos** (BERT / ALBERT family)  
-4. **NER explorer**  
-5. **Compare NER**  
-6. **Local LLM Q&A** on the same shared text  
-
-All tutorial models reuse one shared text context (no personal names in the default sample).
-
-## Zero-command classroom experience (after setup)
-
-The intended user workflow is simply:
-
-```text
-Open Streamlit app (run_app.bat)
-        ↓
-Select module
-        ↓
-Select model
-        ↓
-Enter text / use demonstration
-        ↓
-Run
-```
-
-Students do not need to run Python commands or download models manually after the one-time setup.
-
-## Model catalogue
-
-### NER models
-
-| Display name | Hugging Face ID | Purpose |
+| Engine | Needs model? | Notes |
 |---|---|---|
-| BERT NER | `dslim/bert-base-NER` | English NER |
-| DistilBERT NER | `elastic/distilbert-base-uncased-finetuned-conll03-english` | Compact English NER |
-| RoBERTa NER | `Jean-Baptiste/roberta-large-ner-english` | English NER |
-| XLM-R NER | `Davlan/xlm-roberta-base-ner-hrl` | Multilingual NER |
+| **Extractive** | No | Best first step, low memory, grounded passages |
+| **Local Qwen** | Yes (Install / setup.bat) | Fluent answer from retrieved chunks only |
 
-### Encoder / BERT family
+## Model catalogue (10)
 
-| Display name | Hugging Face ID | Demonstration |
-|---|---|---|
-| BERT base uncased | `google-bert/bert-base-uncased` | Masked language modeling |
-| BERT base cased | `google-bert/bert-base-cased` | Masked language modeling |
-| DistilBERT | `distilbert/distilbert-base-uncased` | Encoder demonstration |
-| RoBERTa | `FacebookAI/roberta-base` | Encoder demonstration |
-| ALBERT | `albert/albert-base-v2` | Encoder demonstration |
+See **Install yourself** for level, best-for, shortcomings, and start advice.
 
-### Local generative model
+- NER (4): DistilBERT NER *(begin here)*, BERT NER, XLM-R NER, RoBERTa-large NER *(last)*
+- Encoders (5): DistilBERT *(begin here)*, BERT uncased/cased, RoBERTa, ALBERT
+- Local LLM (1): Qwen2.5-0.5B-Instruct
 
-| Display name | Hugging Face ID | Purpose |
-|---|---|---|
-| Qwen2.5 0.5B Instruct | `Qwen/Qwen2.5-0.5B-Instruct` | Local text generation / document QA |
+## Project layout
 
-Qwen2.5-0.5B-Instruct is an Apache-2.0 licensed 0.49B-parameter causal language model. Its official model card documents Transformers and local-app usage. See the reference link in the application.
+| File | Role |
+|---|---|
+| `app.py` | Main shell — Chat / Learn / Install |
+| `chat_module.py` | Document chatbot |
+| `learn_module.py` | Lessons + hands-on |
+| `install_module.py` | Guided one-click downloads |
+| `tutorial_lab.py` | Shared-document paper demos |
+| `model_manager.py` | Download / READY checks |
+| `runtime_memory.py` | One-model-at-a-time memory helpers |
+| `models.json` | Catalogue |
+| `local_models/` | Installed weights |
+| `INSTALL.md` / `USER_GUIDE.md` | Extra guides |
 
-## Important deployment note
+## Design principles
 
-Model weights are large binary artifacts and should normally be stored with Git LFS, an object store, or a deployment artifact rather than ordinary Git blobs.
-
-This repository therefore contains:
-- the application
-- model catalogue
-- model reference information
-- automatic model preparation logic
-- local-model directory structure
-
-If model files are already present in `local_models/`, the application uses them locally.
-
-### Preload models
-
-**Recommended for most users (one download — Local LLM only):**
-
-```bash
-python scripts/easy_setup.py
-# or double-click setup.bat on Windows
-```
-
-**Full classroom bundle (all models in `models.json`):**
-
-```bash
-python scripts/easy_setup.py --all
-# or: python scripts/preload_all_models.py
-# or double-click setup_all_models.bat on Windows
-```
-
-This stores checkpoints under `local_models/`.
-
-If a model is still absent at runtime, the application can prepare it automatically from the Hugging Face Hub (or use the in-app **Download Qwen** button). For a truly offline deployment, run setup first.
-
-## Example-driven learning
-
-The Learning module uses practical examples:
-
-- NER: identifying a person, university, location and date in a forensic-training sentence.
-- Tokenization: showing how one sentence becomes tokens.
-- Attention: explaining how “Goa” relates to “visited”.
-- Fine-tuning: comparing base BERT with BERT-NER.
-- Local LLM: asking a question about a short forensic-report context.
-- RAG: retrieving evidence before asking the local LLM to generate an answer.
-
-## References
-
-Hugging Face Transformers pipeline:
-https://huggingface.co/docs/transformers/pipeline_tutorial
-
-Hugging Face model loading:
-https://huggingface.co/docs/transformers/main/models
-
-Qwen2.5-0.5B-Instruct:
-https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct
+1. **Start with Chat** using what is already available
+2. **Learn** concepts before stacking large models
+3. **Install yourself** with clear begin-here vs install-last guidance
+4. Prefer **RAG** (retrieve then answer) over stuffing whole files into a small LLM
+5. Be honest: this lab is **not AGI** — narrow tools for teaching and document Q&A
